@@ -4,7 +4,6 @@
 #include "config/build_config.h"
 
 #include <bitloop.h>
-#include <cmath>
 
 // subprojects
 #include "Cardioid/Cardioid.h"
@@ -41,7 +40,7 @@ struct MandelPhaseData
     int phase = -1;
 
     EscapeField         field;
-    WorldRasterGrid128  grid;
+    WorldRasterGrid256  grid;
     MultiPassShader     shader;
 
     MandelPhaseData(int _phase) : 
@@ -54,9 +53,46 @@ struct MandelPhaseData
 struct Mandelbrot_Scene : public Scene<Mandelbrot_Scene>, public MandelState
 {
     // ────── config ──────
-    struct Config { std::string load_example_name; };
-    Mandelbrot_Scene(Config& config) : load_example_name(config.load_example_name) {}
+    // SceneHandle<Mandelbrot_Scene> queries this nested type while the scene is still incomplete.
+    struct Config;
+
+    struct SceneSyncPolicy
+    {
+        bool camera = false;
+        bool quality = false;
+        bool style = false;
+        bool kernel = false;
+    };
+
+    struct SceneLinkOptions
+    {
+        SceneHandle<Mandelbrot_Scene> source;
+        SceneSyncPolicy sync;
+    };
+
+    struct Config
+    {
+        std::string load_example_name;
+        SceneLinkOptions scene_link;
+        FractalFormula fractal_formula = FractalFormula::MANDELBROT;
+        ComputeBackend compute_backend = ComputeBackend::AUTO;
+    };
+
+    Mandelbrot_Scene(Config& config)
+        : load_example_name(config.load_example_name)
+        , scene_link(config.scene_link)
+        , fractal_formula(config.fractal_formula)
+        , compute_backend(config.compute_backend)
+    {}
+
     std::string load_example_name;
+
+    // ────── linked scene ──────
+    SceneLinkOptions scene_link;
+
+    [[nodiscard]] Mandelbrot_Scene* sourceScene() const noexcept { return scene_link.source.get(); }
+    [[nodiscard]] bool syncsCamera() const noexcept { return sourceScene() && scene_link.sync.camera; }
+    [[nodiscard]] bool syncsStyle() const noexcept { return sourceScene() && scene_link.sync.style; }
 
     // ────── examples ──────
     MandelBookmarkManager bookmark_manager;
@@ -111,13 +147,11 @@ struct Mandelbrot_Scene : public Scene<Mandelbrot_Scene>, public MandelState
     const EscapeField& activeField()  const { return phases[active_phase].field; }
     const EscapeField& pendingField() const { return phases[computing_phase].field; }
 
-
     // ────── raster grids for each phase (no RGBA data, just forEachPixel helpers) ──────
-    WorldRasterGrid128& activeRasterGrid()  { return phases[active_phase].grid; }
-    WorldRasterGrid128& pendingRasterGrid() { return phases[computing_phase].grid; }
-    const WorldRasterGrid128& activeRasterGrid()  const { return phases[active_phase].grid; }
-    const WorldRasterGrid128& pendingRasterGrid() const { return phases[computing_phase].grid; }
-
+    WorldRasterGrid256& activeRasterGrid()  { return phases[active_phase].grid; }
+    WorldRasterGrid256& pendingRasterGrid() { return phases[computing_phase].grid; }
+    const WorldRasterGrid256& activeRasterGrid()  const { return phases[active_phase].grid; }
+    const WorldRasterGrid256& pendingRasterGrid() const { return phases[computing_phase].grid; }
 
     // ────── shading ──────
     static inline const char* init_shader_source =
@@ -157,11 +191,17 @@ struct Mandelbrot_Scene : public Scene<Mandelbrot_Scene>, public MandelState
     MandelStats stats;
     
     // ────── compute ──────
-    int                iter_lim            = 0; // iteration limit provided to mandelbrot kernel
-    KernelFeatures     mandel_features     = KernelFeatures::ITER;
-    KernelMode         kernel_mode         = KernelMode::AUTO;
-    KernelMode         deduced_kernel_mode = KernelMode::NO_PERTURBATION;
-    FloatingPointType  float_type          = FloatingPointType::F64;
+    static inline SplitScreenMode split_screen_mode = SplitScreenMode::SINGLE_VIEW;
+
+    int             iter_lim                 = 0; // iteration limit (dynamic by default)
+    KernelFeatures  mandel_features          = KernelFeatures::ITER;
+    FractalFormula  fractal_formula          = FractalFormula::MANDELBROT;
+    ComputeBackend  compute_backend          = ComputeBackend::AUTO;
+    
+    // resolved dynamically based on various conditions
+    FractalFormula  resolved_fractal_formula = FractalFormula::MANDELBROT;
+    ComputeBackend  resolved_compute_backend = ComputeBackend::DIRECT;
+    MandelFloatType float_type               = MandelFloatType::F64;
 
     // multi-frame tile progress tracker for the pending phase
     TileBlockProgress P;
@@ -183,7 +223,7 @@ struct Mandelbrot_Scene : public Scene<Mandelbrot_Scene>, public MandelState
     bool renormalize = false;
     bool reshade = false;
 
-    DDQuad world_quad{};
+    QDQuad world_quad{};
     
     // ────── interior-forwarding optimization ──────
     struct ContractExpandPhase { int contract, expand; };
@@ -220,10 +260,10 @@ struct Mandelbrot_Scene : public Scene<Mandelbrot_Scene>, public MandelState
     // ────── camera navigation easing ──────
     CameraNavigator navigator;
 
-    math::SMA<DDVec2> avg_vel_pos = math::SMA<DDVec2>(8);
+    math::SMA<QDVec2> avg_vel_pos = math::SMA<QDVec2>(8);
     math::SMA<f64> avg_vel_zoom = math::SMA<f64>(8);
 
-    DDVec2 cam_vel_pos{};
+    QDVec2 cam_vel_pos{};
     f64 cam_vel_zoom{1};
 
     // ────── deep-zoom animation (temporary until timeline feature added) ──────
@@ -324,15 +364,14 @@ struct Mandelbrot_Scene : public Scene<Mandelbrot_Scene>, public MandelState
     void sceneMounted(Viewport* viewport) override;
 
     // ────── compute ──────
-    template<typename T, KernelFeatures F, KernelMode K>
-    bool compute_mandelbrot(int timeout, f64& field_compute_ms);
+    template<typename T, KernelFeatures F, ComputeBackend BACKEND>
+    bool computeMandelbrot(int timeout, f64& field_compute_ms);
 
     template<typename T, KernelFeatures F>
     void calculate_normalize_info();
 
     template<typename T, KernelFeatures F, bool Normalize_Depth, bool Invert_Dist, bool Show_Optimized>
     void normalize_field();
-
 
     // ────── viewport handling ──────
     bool mandelChanged();
@@ -344,11 +383,15 @@ struct Mandelbrot_Scene : public Scene<Mandelbrot_Scene>, public MandelState
 
     // process pipeline
     void loadNextBatchSnapshotState();
+    void applySceneSynchronization();
+    void syncQualityFrom(const Mandelbrot_Scene& source);
+    void syncStyleFrom(const Mandelbrot_Scene& source);
     void updateAnimation();
-    void updateCameraView(Viewport* ctx);
+    void updateCameraView(Viewport* ctx, const WorldStageTransform& camera_transform);
     void updateQuality();
+    void resolveKernelSelection();
     void resetCompute();
-    void updateFieldSizes();
+    void updateFieldSizes(const WorldStageTransform& camera_transform);
     void updateEnabledKernelFeatures();
     bool processCompute();
     bool updateGradient();

@@ -31,7 +31,7 @@ FORCE_INLINE constexpr void mandel_step_and_derivative(Complex<T>& z, Complex<T>
     const T re = zx_dzx - zy_dzy;
     const T im = zx_dzy + zy_dzx;
 
-    dz.x = re + re + 1;
+    dz.x = re + re + 1.0;
     dz.y = im + im;
 
     // optimized: z = z*z + c;
@@ -87,9 +87,9 @@ FORCE_INLINE void kernel_mandel(T x0, T y0, int iter_lim, f64& depth, f64& dist,
     if constexpr (NEED_DIST)
     {
         if (escaped) {
-            const T r = sqrt(r2);
-            const T dz_abs = sqrt(dz.mag2());
-            dist = (dz_abs == zero) ? 0.0 : (f64)(r * log(r) / dz_abs);
+            const T r = bl::sqrt(r2);
+            const T dz_abs = bl::sqrt(dz.mag2());
+            dist = (dz_abs == zero) ? 0.0 : (f64)(r * bl::log(r) / dz_abs);
         }
         else
             dist = -1.0;

@@ -9,18 +9,18 @@ void Mandelbrot_Scene::beginSteadyZoom()
 {
     std::string data = serializeState();
 
-    main_window()->setFixedFrameTimeDelta(true);
+    captureContext().setFixedFrameTimeDelta(true);
 
     steady_zoom_frames_elapsed = 0;
 
     // Give destination same reference zoom level
-    state_b.camera.setReferenceZoom(camera.getReferenceZoom<f128>());
+    state_b.camera.setReferenceZoom(camera.getReferenceZoom());
 
     // Set destination
     state_b.deserialize(data);
 
     // Set current state to match, but reset back to current zoom
-    f128 current_zoom = 1.0_dd;// scene.camera.relativeZoom<f128>();
+    f64 current_zoom = camera.relativeZoom();
     static_cast<MandelState&>(*this) = state_b;
     camera.setRelativeZoom(current_zoom);
 
@@ -42,7 +42,7 @@ void Mandelbrot_Scene::beginSteadyZoom()
 
 void Mandelbrot_Scene::endSteadyZoom()
 {
-    camera.setRelativeZoom(state_b.camera.relativeZoom<f128>());
+    camera.setRelativeZoom(state_b.camera.relativeZoom());
     tweening = false;
     steady_zoom = false;
 
@@ -58,27 +58,27 @@ void Mandelbrot_Scene::updateSteadyZoom(double dt)
             bool finished_frame = capturedLastFrame();
             if (finished_frame)
             {
-                if (camera.relativeZoom<f128>() < state_b.camera.relativeZoom<f128>())
+                if (camera.relativeZoom() < state_b.camera.relativeZoom())
                 {
-                    auto stepsToReach = [](f128 A, f128 B, f128 zoom_rate) {
-                        double n = (double)(log(B / A) / log(zoom_rate));
-                        return (int)ceil(n);
+                    auto stepsToReach = [](f64 A, f64 B, f64 zoom_rate) {
+                        double n = (double)(bl::log(B / A) / bl::log(zoom_rate));
+                        return (int)bl::ceil(n);
                     };
 
                     steady_zoom_frames_elapsed++;
 
                     steady_zoom_expected_frames = stepsToReach(
-                        state_a.camera.relativeZoom<f128>(),
-                        state_b.camera.relativeZoom<f128>(),
-                        f128(1.0 + steady_zoom_mult_speed)); // seconds
+                        state_a.camera.relativeZoom(),
+                        state_b.camera.relativeZoom(),
+                        1.0 + steady_zoom_mult_speed); // seconds
 
-                    camera.setRelativeZoom(camera.relativeZoom<f128>() * (1.0 + steady_zoom_mult_speed));
+                    camera.setRelativeZoom(camera.relativeZoom() * (1.0 + steady_zoom_mult_speed));
                     camera.setRotation(camera.rotation() + steady_zoom_rotate_speed);
 
                     steady_zoom_pct = (float)math::lerpFactor(
-                        toNormalizedZoom(camera.relativeZoom<f128>()),
-                        toNormalizedZoom(state_a.camera.relativeZoom<f128>()),
-                        toNormalizedZoom(state_b.camera.relativeZoom<f128>())
+                        toNormalizedZoom(camera.relativeZoom()),
+                        toNormalizedZoom(state_a.camera.relativeZoom()),
+                        toNormalizedZoom(state_b.camera.relativeZoom())
                     ) * 100.0f;
 
                     // Update estimated time remaining

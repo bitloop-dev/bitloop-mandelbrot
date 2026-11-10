@@ -19,8 +19,8 @@ void plot(const SceneBase *scene, Viewport* ctx, bool interactive, int segments,
 
     for (double angle = 0.0; angle < math::tau; angle += angle_step)
     {
-        double plot_x = 0.5 * cos(angle) - 0.25 * cos(angle * 2.0);
-        double plot_y = 0.5 * sin(angle) - 0.25 * sin(angle * 2.0);
+        double plot_x = 0.5 * bl::cos(angle) - 0.25 * bl::cos(angle * 2.0);
+        double plot_y = 0.5 * bl::sin(angle) - 0.25 * bl::sin(angle * 2.0);
 
         if (first)
         {
@@ -33,10 +33,11 @@ void plot(const SceneBase *scene, Viewport* ctx, bool interactive, int segments,
 
     ctx->stroke();
 
-    if (interactive)
+    if (interactive && scene->mouse->viewport == ctx)
     {
         double tx1, ty1, tx2, ty2, ta, oa, d;
-        cardioidPolarCoord((f64)scene->mouse->world_x, (f64)scene->mouse->world_y, tx1, ty1, ta, d, oa);
+        const DVec2 mouse_world = ctx->worldStageTransform().toWorld<f64>(scene->mouse->stage_x, scene->mouse->stage_y);
+        cardioidPolarCoord(mouse_world.x, mouse_world.y, tx1, ty1, ta, d, oa);
 
         ctx->scalingSizes(true);
 
@@ -47,20 +48,20 @@ void plot(const SceneBase *scene, Viewport* ctx, bool interactive, int segments,
 
 
         // p1 dot
-        double p1_x = r1 * cos(oa) + ox;
-        double p1_y = r1 * sin(oa);
+        double p1_x = r1 * bl::cos(oa) + ox;
+        double p1_y = r1 * bl::sin(oa);
 
         // Med green circle
         double r2 = r1 / 4.0;
         double angle2 = 2.0 * oa;
-        double c2_x = p1_x - r2 * cos(angle2);
-        double c2_y = p1_y - r2 * sin(angle2);
+        double c2_x = p1_x - r2 * bl::cos(angle2);
+        double c2_y = p1_y - r2 * bl::sin(angle2);
         ctx->setStrokeStyle(255, 0, 255);
         ctx->strokeEllipse(c2_x, c2_y, r2);
 
         ctx->scalingSizes(false);
 
-        DVec2 off = ctx->Offset(5, 5);
+        DVec2 off = ctx->Offset(5.0, 5.0);
 
         // draw p1 dot
         ctx->setFillStyle(255, 0, 255);
@@ -68,15 +69,15 @@ void plot(const SceneBase *scene, Viewport* ctx, bool interactive, int segments,
         ctx->fillText("p1", p1_x + off.x, p1_y + off.y);
 
         // draw p2 dot
-        double p2_x = c2_x - r2 * cos(angle2);
-        double p2_y = c2_y - r2 * sin(angle2);
+        double p2_x = c2_x - r2 * bl::cos(angle2);
+        double p2_y = c2_y - r2 * bl::sin(angle2);
         ctx->setFillStyle(255, 0, 255);
         ctx->fillEllipse(p2_x, p2_y, 8.0);
         ctx->fillText("p2", p2_x + off.x, p2_y + off.y);
 
         // draw tangent arrow
-        double tangent_head_x = p2_x + cos(ta) * 0.2;
-        double tangent_head_y = p2_y + sin(ta) * 0.2;
+        double tangent_head_x = p2_x + bl::cos(ta) * 0.2;
+        double tangent_head_y = p2_y + bl::sin(ta) * 0.2;
         ctx->drawArrow(DVec2{ p2_x, p2_y }, DVec2{ tangent_head_x, tangent_head_y }, Color(255, 255, 255));
         //ctx->beginPath();
         //ctx->arrowMoveTo(p2_x, p2_y);
@@ -85,8 +86,8 @@ void plot(const SceneBase *scene, Viewport* ctx, bool interactive, int segments,
 
         // Draw perpendicular arrow (to mouse)
         double perp_angle = math::wrapRadians2PI(ta - math::half_pi);
-        tx2 = tx1 + cos(perp_angle) * d;
-        ty2 = ty1 + sin(perp_angle) * d;
+        tx2 = tx1 + bl::cos(perp_angle) * d;
+        ty2 = ty1 + bl::sin(perp_angle) * d;
 
         //ctx->beginPath();
         //ctx->arrowMoveTo(tx1, ty1);
@@ -109,18 +110,18 @@ void animatePlot(Viewport* ctx, double scale, double ox, double orig_angle, doub
     ctx->strokeEllipse(ox * scale, 0.0, r1);
 
     // p1 dot
-    double p1_x = r1 * cos(orig_angle) + ox * scale;
-    double p1_y = r1 * sin(orig_angle);
+    double p1_x = r1 * bl::cos(orig_angle) + ox * scale;
+    double p1_y = r1 * bl::sin(orig_angle);
 
     // Med green circle
     double r2 = r1 / 4.0;
     double angle2 = 2.0 * orig_angle;
-    double c2_x = p1_x - r2 * cos(angle2);
-    double c2_y = p1_y - r2 * sin(angle2);
+    double c2_x = p1_x - r2 * bl::cos(angle2);
+    double c2_y = p1_y - r2 * bl::sin(angle2);
     ctx->setStrokeStyle(0, 255, 0);
     ctx->strokeEllipse(c2_x, c2_y, r2);
 
-    DVec2 off = ctx->Offset(5, 5);
+    DVec2 off = ctx->Offset(5.0, 5.0);
 
     ctx->scalingSizes(false);
 
@@ -130,8 +131,8 @@ void animatePlot(Viewport* ctx, double scale, double ox, double orig_angle, doub
     ctx->fillText("p1", p1_x + off.x, p1_y + off.y);
 
     // draw p2 dot
-    double p2_x = c2_x - r2 * cos(angle2);
-    double p2_y = c2_y - r2 * sin(angle2);
+    double p2_x = c2_x - r2 * bl::cos(angle2);
+    double p2_y = c2_y - r2 * bl::sin(angle2);
     ctx->setFillStyle(0, 255, 255);
     ctx->fillEllipse(p2_x, p2_y, 5.0);
     ctx->fillText("p2", p2_x + off.x, p2_y + off.y);
@@ -139,15 +140,15 @@ void animatePlot(Viewport* ctx, double scale, double ox, double orig_angle, doub
     double tangent_angle = 1.5 * orig_angle;
 
     // draw tangent arrow
-    double tangent_head_x = p2_x + cos(tangent_angle) * 0.2;
-    double tangent_head_y = p2_y + sin(tangent_angle) * 0.2;
+    double tangent_head_x = p2_x + bl::cos(tangent_angle) * 0.2;
+    double tangent_head_y = p2_y + bl::sin(tangent_angle) * 0.2;
     ctx->drawArrow(DVec2{ p2_x, p2_y }, DVec2{ tangent_head_x, tangent_head_y }, Color(255, 255, 255));
 
     // Draw perpendicular arrow (to mouse)
     DVec2 tp = fromPolarCoordinate(orig_angle, dist);
 
-    double tx1 = 0.5 * cos(orig_angle) - 0.25 * cos(orig_angle * 2.0);
-    double ty1 = 0.5 * sin(orig_angle) - 0.25 * sin(orig_angle * 2.0);
+    double tx1 = 0.5 * bl::cos(orig_angle) - 0.25 * bl::cos(orig_angle * 2.0);
+    double ty1 = 0.5 * bl::sin(orig_angle) - 0.25 * bl::sin(orig_angle * 2.0);
     double tx2 = tp.x;
     double ty2 = tp.y;
 
@@ -229,15 +230,14 @@ void Cardioid_Scene::sceneStart()
 void Cardioid_Scene::sceneMounted(Viewport* ctx)
 {
     /// Initialize viewport (after sceneStart)
-    camera.setSurface(ctx);
     camera.setOriginViewportAnchor(Anchor::CENTER);
-    camera.focusWorldRect(-0.9, -1, 0.6, 1);
+    camera.focusWorldRect(*ctx, -0.9, -1.0, 0.6, 1.0);
 
     navigator.setTarget(camera);
     navigator.setDirectCameraPanning(true);
 }
 
-void Cardioid_Scene::sceneProcess()
+void Cardioid_Scene::sceneProcess([[maybe_unused]] double dt)
 {
     if (isRecording())
         permitCaptureFrame(false);
@@ -273,7 +273,7 @@ void Cardioid_Scene::viewportProcess(Viewport*, double)
 
 void Cardioid_Scene::viewportDraw(Viewport* ctx) const
 {
-    ctx->setTransform(camera.getTransform());
+    ctx->transform(camera);
 
     /// Draw Scene to Viewport
     ctx->drawWorldAxis();
@@ -286,12 +286,15 @@ void Cardioid_Scene::viewportDraw(Viewport* ctx) const
 
     // Use animated angle, unless interactive mouse angle overrides it
     double angle = ani_angle;
+    const DVec2 mouse_world = mouse->viewport == ctx
+        ? static_cast<DVec2>(mouse->worldPosition(camera))
+        : DVec2{};
 
-    if (interactive)
+    if (interactive && mouse->viewport == ctx)
     {
         // grab angle from mouse
         double tx1, ty1, ta, d; // dummies
-        cardioidPolarCoord((f64)mouse->world_x, (f64)mouse->world_y, tx1, ty1, ta, d, angle);
+        cardioidPolarCoord(mouse_world.x, mouse_world.y, tx1, ty1, ta, d, angle);
     }
 
     if (flatten)
@@ -306,7 +309,7 @@ void Cardioid_Scene::viewportDraw(Viewport* ctx) const
         ctx->fillEllipse(p.x, p.y, 5.0);
 
         // Mouse project test (dot should perfectly follow mouse in stable regions)
-        DVec2 p2 = cumulative_cardioid_lookup.originalPolarCoordinate((f64)mouse->world_x, (f64)mouse->world_y, interact_spin_mult);
+        DVec2 p2 = cumulative_cardioid_lookup.originalPolarCoordinate(mouse_world.x, mouse_world.y, interact_spin_mult);
         DVec2 p3 = cumulative_cardioid_lookup.project(p2.x, p2.y, interact_spin_mult);
 
         ctx->setFillStyle(255, 0, 0);
@@ -340,19 +343,19 @@ void Cardioid_Scene::animatePlot(Viewport* ctx, double scale, double ox, double 
     ctx->strokeEllipse(ox * scale, 0.0, r1);
 
     // p1 dot
-    double p1_x = r1 * cos(orig_angle) + ox * scale;
-    double p1_y = r1 * sin(orig_angle);
+    double p1_x = r1 * bl::cos(orig_angle) + ox * scale;
+    double p1_y = r1 * bl::sin(orig_angle);
 
     // Med green circle
     double r2 = r1 / 4.0;
     double angle2 = 2.0 * orig_angle;
-    double c2_x = p1_x - r2 * cos(angle2);
-    double c2_y = p1_y - r2 * sin(angle2);
+    double c2_x = p1_x - r2 * bl::cos(angle2);
+    double c2_y = p1_y - r2 * bl::sin(angle2);
 
     ctx->setStrokeStyle(0, 255, 0);
     ctx->strokeEllipse(c2_x, c2_y, r2);
 
-    DVec2 off = ctx->Offset(5, 5);
+    DVec2 off = ctx->Offset(5.0, 5.0);
 
     ctx->scalingSizes(false);
 
@@ -362,8 +365,8 @@ void Cardioid_Scene::animatePlot(Viewport* ctx, double scale, double ox, double 
     ctx->fillText("p1", p1_x + off.x, p1_y + off.y);
 
     // draw p2 dot
-    double p2_x = c2_x - r2 * cos(angle2);
-    double p2_y = c2_y - r2 * sin(angle2);
+    double p2_x = c2_x - r2 * bl::cos(angle2);
+    double p2_y = c2_y - r2 * bl::sin(angle2);
     ctx->setFillStyle(0, 255, 255);
     ctx->fillEllipse(p2_x, p2_y, 5.0);
     ctx->fillText("p2", p2_x + off.x, p2_y + off.y);
@@ -371,8 +374,8 @@ void Cardioid_Scene::animatePlot(Viewport* ctx, double scale, double ox, double 
     double tangent_angle = 1.5 * orig_angle;
 
     // draw tangent arrow
-    double tangent_head_x = p2_x + cos(tangent_angle) * 0.2;
-    double tangent_head_y = p2_y + sin(tangent_angle) * 0.2;
+    double tangent_head_x = p2_x + bl::cos(tangent_angle) * 0.2;
+    double tangent_head_y = p2_y + bl::sin(tangent_angle) * 0.2;
     ctx->drawArrow(DVec2{ p2_x, p2_y }, DVec2{ tangent_head_x, tangent_head_y }, Color(255, 255, 255));
     //ctx->beginPath();
     //ctx->arrowMoveTo(p2_x, p2_y);
@@ -382,12 +385,12 @@ void Cardioid_Scene::animatePlot(Viewport* ctx, double scale, double ox, double 
     
     // Draw perpendicular arrow (to mouse)
     //double perp_angle = math::wrapRadians2PI(tangent_angle - M_PI / 2.0);
-    ///tx2 = tx1 + cos(perp_angle) * d;
-    ///ty2 = ty1 + sin(perp_angle) * d;
+    ///tx2 = tx1 + bl::cos(perp_angle) * d;
+    ///ty2 = ty1 + bl::sin(perp_angle) * d;
     DVec2 tp = fromPolarCoordinate(orig_angle, dist);
 
-    double tx1 = 0.5 * cos(orig_angle) - 0.25 * cos(orig_angle * 2.0);
-    double ty1 = 0.5 * sin(orig_angle) - 0.25 * sin(orig_angle * 2.0);
+    double tx1 = 0.5 * bl::cos(orig_angle) - 0.25 * bl::cos(orig_angle * 2.0);
+    double ty1 = 0.5 * bl::sin(orig_angle) - 0.25 * bl::sin(orig_angle * 2.0);
     double tx2 = tp.x;
     double ty2 = tp.y;
 
@@ -434,8 +437,8 @@ void Cardioid_Scene::plotCumulativeCardioid(
         double scaled_step_angle = step_angle * angle_mult;
         plot_direction += scaled_step_angle;
 
-        plot_x += cos(plot_direction) * step_dist;
-        plot_y += sin(plot_direction) * step_dist;
+        plot_x += bl::cos(plot_direction) * step_dist;
+        plot_y += bl::sin(plot_direction) * step_dist;
 
         ctx->lineTo(plot_x, plot_y);
     }
@@ -464,16 +467,16 @@ void Cardioid_Scene::fullPlot(Viewport* ctx, double scale, double ox) const
 
         double angle2 = 2.0 * angle;
 
-        double c1_x = r1 * cos(angle) + ox * scale;
-        double c1_y = r1 * sin(angle);
-        double c2_x = c1_x - r2 * cos(angle2);
-        double c2_y = c1_y - r2 * sin(angle2);
+        double c1_x = r1 * bl::cos(angle) + ox * scale;
+        double c1_y = r1 * bl::sin(angle);
+        double c2_x = c1_x - r2 * bl::cos(angle2);
+        double c2_y = c1_y - r2 * bl::sin(angle2);
 
-        double plot_x = c2_x - r2 * cos(angle2);
-        double plot_y = c2_y - r2 * sin(angle2);
+        double plot_x = c2_x - r2 * bl::cos(angle2);
+        double plot_y = c2_y - r2 * bl::sin(angle2);
 
-        //double plot_x = 0.5 * cos(angle) - 0.25 * cos(angle * 2.0);
-        //double plot_y = 0.5 * sin(angle) - 0.25 * sin(angle * 2.0);
+        //double plot_x = 0.5 * bl::cos(angle) - 0.25 * bl::cos(angle * 2.0);
+        //double plot_y = 0.5 * bl::sin(angle) - 0.25 * bl::sin(angle * 2.0);
 
         if (first)
         {
@@ -503,9 +506,9 @@ void Cardioid_Scene::fullPlotAlternative(Viewport* ctx, double scale, double ox)
     bool first = true;
     for (double angle = 0.0; angle < math::tau; angle += angle_step)
     {
-        //double a = sin(angle * 0.5);
-        double plot_x = cos(angle) * pow(sin(angle * 0.5), 2.0) + (ox + 0.25) * scale;
-        double plot_y = sin(angle) * pow(sin(angle * 0.5), 2.0);
+        //double a = bl::sin(angle * 0.5);
+        double plot_x = bl::cos(angle) * bl::pow(bl::sin(angle * 0.5), 2.0) + (ox + 0.25) * scale;
+        double plot_y = bl::sin(angle) * bl::pow(bl::sin(angle * 0.5), 2.0);
 
         if (first)
         {
@@ -528,14 +531,12 @@ void Cardioid_Graph_Scene::sceneStart()
 
 void Cardioid_Graph_Scene::sceneMounted(Viewport* ctx)
 {
-    camera.setSurface(ctx);
     camera.setOriginViewportAnchor(Anchor::CENTER);
-    camera.focusWorldRect(-0.9, -1, 0.6, 1);
+    camera.focusWorldRect(*ctx, -0.9, -1.0, 0.6, 1.0);
 
     navigator.setTarget(camera);
     navigator.setDirectCameraPanning(true);
 
-    bmp.setCamera(camera);
 }
 
 void Cardioid_Graph_Scene::viewportProcess(Viewport* ctx, double)
@@ -543,6 +544,7 @@ void Cardioid_Graph_Scene::viewportProcess(Viewport* ctx, double)
     int iw = static_cast<int>(ctx->width() / 2);
     int ih = static_cast<int>(ctx->height() / 2);
 
+    bmp.setWorldStageTransform(ctx->cameraTransform(camera));
     bmp.setRasterSize(iw, ih);
     bmp.setStageRect(0, 0, ctx->width(), ctx->height());
 
@@ -579,7 +581,7 @@ void Cardioid_Graph_Scene::viewportProcess(Viewport* ctx, double)
 
 void Cardioid_Graph_Scene::viewportDraw(Viewport* ctx) const
 {
-    ctx->setTransform(camera.getTransform());
+    ctx->transform(camera);
 
     /// Bmp plotting
     ctx->drawImage(bmp);
@@ -609,8 +611,8 @@ void Cardioid_Graph_Scene::viewportDraw(Viewport* ctx) const
     first = true;
     for (double angle = 0.0; angle < math::tau; angle += angle_step)
     {
-        double plot_x = 0.5 * cos(angle) - 0.25 * cos(angle * 2.0);
-        double plot_y = 0.5 * sin(angle) - 0.25 * sin(angle * 2.0);
+        double plot_x = 0.5 * bl::cos(angle) - 0.25 * bl::cos(angle * 2.0);
+        double plot_y = 0.5 * bl::sin(angle) - 0.25 * bl::sin(angle * 2.0);
 
         if (first)
         {

@@ -35,7 +35,7 @@ void Mandelbrot_Scene::loadNextBatchSnapshotState()
             
             loadState(data);
             
-            SnapshotPresetList all_presets = main_window()->getSettingsConfig()->enabledImagePresets();
+            SnapshotPresetList all_presets = captureSettings().enabledImagePresets();
             SnapshotPresetList filtered    = ignore_preset_filters ?
                 all_presets : 
                 all_presets.filtered(valid_presets);
@@ -61,7 +61,7 @@ void Mandelbrot_Scene::updateAnimation()
             // Animation
             if (animate_gradient_shift)
             {
-                if (fabs(gradient_shift_step) > 1.0e-4)
+                if (bl::fabs(gradient_shift_step) > 1.0e-4)
                 {
                     gradient_shift = math::wrap(gradient_shift + gradient_shift_step * ani_mult, 0.0, 1.0);
                     stepped = true;
@@ -70,7 +70,7 @@ void Mandelbrot_Scene::updateAnimation()
 
             if (animate_gradient_hue)
             {
-                if (fabs(hue_shift_step) > 1.0e-4)
+                if (bl::fabs(hue_shift_step) > 1.0e-4)
                 {
                     hue_shift = math::wrap(hue_shift + hue_shift_step * ani_mult, 0.0, 360.0);
                     stepped = true;
@@ -79,7 +79,7 @@ void Mandelbrot_Scene::updateAnimation()
 
             if (animate_stripe_phase)
             {
-                if (fabs(phase_step) > 1.0e-4)
+                if (bl::fabs(phase_step) > 1.0e-4)
                 {
                     stripe_params.phase = math::wrap(stripe_params.phase + phase_step * (f32)ani_mult, 0.0f, math::tau_f);
                     stepped = true;
@@ -97,9 +97,6 @@ void Mandelbrot_Scene::updateAnimation()
         ani_angle += ani_inc * ani_mult;
         ani_angle = math::wrapRadians2PI(ani_angle);
     }
-
-    if (Changed(ani_angle))
-        requestRedraw(true);
 }
 
 bool Mandelbrot_Scene::updateGradient()
@@ -114,29 +111,29 @@ bool Mandelbrot_Scene::updateGradient()
     return false;
 }
 
-void Mandelbrot_Scene::updateCameraView(Viewport* ctx)
+void Mandelbrot_Scene::updateCameraView(Viewport* ctx, const WorldStageTransform& camera_transform)
 {
-    #if MANDEL_FEATURE_CAMERA_EASING
+    /*#if MANDEL_FEATURE_CAMERA_EASING
     if (!tweening)
     {
         // Process camera velocity
         if (mouse->buttonDown(MouseButton::LEFT))
         {
-            cam_vel_pos = DDVec2{};
+            cam_vel_pos = QDVec2{};
 
             // Stop zoom velocity on touch
             cam_vel_zoom = 1.0;
         }
         else
         {
-            f128 threshold = 0.001 / camera.relativeZoom<f128>();
+            f64 threshold = 0.001 / camera.relativeZoom();
             if (cam_vel_pos.mag() > threshold)
-                camera.setPos(camera.pos<f128>() + cam_vel_pos);
+                camera.setPos(camera.pos<fqd>() + cam_vel_pos);
             else
-                cam_vel_pos = DDVec2{};
+                cam_vel_pos = QDVec2{};
 
             if (fabs(cam_vel_zoom - 1.0) > 0.01)
-                camera.setRelativeZoom(camera.relativeZoom<f128>() * cam_vel_zoom);
+                camera.setRelativeZoom(camera.relativeZoom() * cam_vel_zoom);
             else
                 cam_vel_zoom = 1.0;
 
@@ -147,16 +144,80 @@ void Mandelbrot_Scene::updateCameraView(Viewport* ctx)
             cam_vel_zoom = 1.0 - (1.0 - cam_vel_zoom) * std::pow(alpha, f); // Ease back to 1x
         }
     }
-    #endif
+    #endif*/
 
     // update surface size (snapped to lowest resolution) + world quad
     int max_division = (int)phaseDownscaleFactor(0);
-    surface_w = (int)(ceil(ctx->width() / max_division)) * max_division;
-    surface_h = (int)(ceil(ctx->height() / max_division)) * max_division;
-    world_quad = camera.getTransform().toWorldQuad<f128>(DRect{ surface_w, surface_h });
+    surface_w = (int)(bl::ceil(ctx->width() / max_division)) * max_division;
+    surface_h = (int)(bl::ceil(ctx->height() / max_division)) * max_division;
+    world_quad = camera_transform.toWorldQuad<fqd>(DRect(0.0, 0.0, surface_w, surface_h));
 }
 
-void Mandelbrot_Scene::updateFieldSizes()
+void Mandelbrot_Scene::syncQualityFrom(const Mandelbrot_Scene& source)
+{
+    quality = source.quality;
+    dynamic_iter_lim = source.dynamic_iter_lim;
+    interior_forwarding = source.interior_forwarding;
+}
+
+void Mandelbrot_Scene::syncStyleFrom(const Mandelbrot_Scene& source)
+{
+    use_smoothing = source.use_smoothing;
+
+    iter_weight = source.iter_weight;
+    dist_weight = source.dist_weight;
+    stripe_weight = source.stripe_weight;
+    stripe_params.freq = source.stripe_params.freq;
+
+    normalize_field_scale = source.normalize_field_scale;
+    normalize_field_quality = source.normalize_field_quality;
+    normalize_field_exponent = source.normalize_field_exponent;
+    normalize_field_precision = source.normalize_field_precision;
+    if (shader_source_txt != source.shader_source_txt)
+    {
+        shader_source_txt = source.shader_source_txt;
+        update_editor_shader_source = true;
+    }
+
+    iter_params = source.iter_params;
+    dist_params = source.dist_params;
+    stripe_params.phase = source.stripe_params.phase;
+    dist_tone_params = source.dist_tone_params;
+    stripe_tone_params = source.stripe_tone_params;
+
+    if (!(gradient == source.gradient))
+        gradient = source.gradient;
+    gradient_shift = source.gradient_shift;
+    hue_shift = source.hue_shift;
+    gradient_shift_step = source.gradient_shift_step;
+    hue_shift_step = source.hue_shift_step;
+    phase_step = source.phase_step;
+
+    animate_gradient_shift = source.animate_gradient_shift;
+    animate_gradient_hue = source.animate_gradient_hue;
+    animate_stripe_phase = source.animate_stripe_phase;
+}
+
+void Mandelbrot_Scene::applySceneSynchronization()
+{
+    const Mandelbrot_Scene* source = sourceScene();
+    if (!source || source == this)
+        return;
+
+    if (scene_link.sync.camera)
+        camera = source->camera;
+    if (scene_link.sync.quality)
+        syncQualityFrom(*source);
+    if (scene_link.sync.style)
+        syncStyleFrom(*source);
+    if (scene_link.sync.kernel)
+    {
+        fractal_formula = source->fractal_formula;
+        compute_backend = source->compute_backend;
+    }
+}
+
+void Mandelbrot_Scene::updateFieldSizes(const WorldStageTransform& camera_transform)
 {
     // set field/raster grid sizes + target render rect
     int cur_division = (int)phaseDownscaleFactor(0);
@@ -166,8 +227,10 @@ void Mandelbrot_Scene::updateFieldSizes()
         int phase_h = surface_h / cur_division;
 
         phases[i].field.setDimensions(phase_w, phase_h);
+        phases[i].grid.setWorldStageTransform(camera_transform);
         phases[i].grid.setRasterSize(phase_w, phase_h);
         phases[i].grid.setStageRect(0, 0, surface_w, surface_h);
+        //phases[i].grid.setStageRect(surface_w*0.25, surface_h*0.25, surface_w*0.5, surface_h*0.5);
 
         cur_division /= 3;
     }
@@ -184,11 +247,13 @@ void Mandelbrot_Scene::updateFieldSizes()
     // update normalization field sample points
     if (first_frame ||
         Changed(world_quad) ||
-        changed_normalization_field_shape ||
-        Changed(normalize_field_scale/*, normalize_field_precision*/)
-        )
+        Changed(normalize_field_scale) ||
+        changed_normalization_field_shape)
     {
-        table_invoke(dispatch_table_targ(norm_field, NormalizationField::updateField, camera, normalize_field_scale), float_type);
+       bl_table_invoke(
+           bl_dispatch_table_memfn(norm_field, NormalizationField::updateField, camera, camera_transform, normalize_field_scale),
+           bl_enum_type(float_type)
+       );
     }
 }
 
@@ -220,8 +285,23 @@ void Mandelbrot_Scene::updateQuality()
 
     if (first_frame || view_changed || quality_opts_changed)
     {
-        float_type = getRequiredFloatType(mandel_features, camera.relativeZoom<f128>());
+        float_type = getRequiredFloatType(mandel_features, camera.relativeZoom());
         iter_lim = finalIterLimit(camera, quality, dynamic_iter_lim, tweening);
+
+        camera.setMaxPrecision((FloatType)((int)float_type + 1));
+    }
+}
+
+void Mandelbrot_Scene::resolveKernelSelection()
+{
+    resolved_fractal_formula = fractal_formula;
+    resolved_compute_backend = compute_backend;
+
+    if (resolved_compute_backend == ComputeBackend::AUTO)
+    {
+        resolved_compute_backend = float_type >= MandelFloatType::F128
+            ? ComputeBackend::PERTURBATION_SIMD_UNROLLED
+            : ComputeBackend::DIRECT;
     }
 }
 
@@ -258,28 +338,24 @@ bool Mandelbrot_Scene::processCompute()
     // For high-res phases, break up work across multiple frames if necessary to not lock panning
     int timeout = updateComputeTimeout();
 
-    // Run appropriate kernel for given settings
-    deduced_kernel_mode = kernel_mode;
-
-    // if "AUTO" => use perturbation at f128 depths
-    // otherwise no performance gain => use simple kernel
-    if (deduced_kernel_mode == KernelMode::AUTO)
-    {
-        // todo: Make sure we don't switch mode inbetween phases? Some kernels might rely on cached info
-        //       from the same kernel 
-        if (float_type >= FloatingPointType::F128)
-            deduced_kernel_mode = KernelMode::PERTURBATION_SIMD_UNROLLED;
-        else
-            deduced_kernel_mode = KernelMode::NO_PERTURBATION;
-    }
 
     // resume computing this phase
     {
         double elapsed = 0.0;
 
-        finished_compute = frame_complete = 
-            table_invoke(dispatch_table(compute_mandelbrot, timeout, elapsed), float_type, mandel_features, deduced_kernel_mode);
+        switch (resolved_fractal_formula)
+        {
+        case FractalFormula::MANDELBROT:
+            finished_compute = frame_complete = bl_table_invoke(
+                bl_dispatch_table(computeMandelbrot, timeout, elapsed),
+                bl_enum_type(float_type), mandel_features, resolved_compute_backend);
+            break;
 
+        default:
+            finished_compute = frame_complete = false;
+            break;
+        }
+		
         phase_timers[computing_phase] += elapsed;
     }
 
@@ -316,7 +392,7 @@ bool Mandelbrot_Scene::processCompute()
         if (interior_forwarding != (int)MandelInteriorForwarding::SLOWEST)
         {
             int next_phase = computing_phase + 1;
-            WorldRasterGrid128& src_grid = phases[computing_phase].grid;
+            WorldRasterGrid256& src_grid = phases[computing_phase].grid;
             EscapeField& src_field = phases[computing_phase].field;
             EscapeField& dst_field = phases[next_phase].field;
 
@@ -344,7 +420,7 @@ bool Mandelbrot_Scene::processCompute()
                     src_field.expandSkipFlags(contact_expand_phase.expand);
 
                     bool final_forward = (computing_phase == PHASE_COUNT - 2);
-                    table_invoke(lambda_table([&]<bool Final_Step>()
+                    bl_table_invoke(bl_dispatch_table_callable([&]<bool Final_Step>()
                     {
                         src_grid.forEachPixel([&](int x, int y)
                         {
@@ -424,7 +500,7 @@ bool Mandelbrot_Scene::mandelChanged()
     bool compute_opts_changed    = Changed(stripe_params.freq);
     bool features_changed        = Changed(mandel_features);
     bool normalize_field_changed = Changed(normalize_field_quality, normalize_field_exponent, normalize_field_scale, normalize_field_precision);
-    bool kernel_mode_changed     = Changed(kernel_mode);
+    bool kernel_selection_changed = Changed(resolved_fractal_formula, resolved_compute_backend);
 
     //bool debug_opts_changed = Changed(stripe_mag_numerator, stripe_mag_from_hist);
 
@@ -435,7 +511,7 @@ bool Mandelbrot_Scene::mandelChanged()
         compute_opts_changed ||
         features_changed || 
         normalize_field_changed ||
-        kernel_mode_changed 
+        kernel_selection_changed
         //|| debug_opts_changed
     );
 }

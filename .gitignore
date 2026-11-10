@@ -42,7 +42,8 @@
 
 # bitloop ignores
 .vs
+.codex
 **/build/
 out
 /captures
-/_unversioned
+**/_unversioned/

@@ -12,12 +12,13 @@ private:
         FVec2  world_pos_32;
         DVec2  world_pos_64;
         DDVec2 world_pos_128;
+        QDVec2 world_pos_256;
     };
 public:
 
     NormalizationPixel() noexcept
         : EscapeFieldPixel{}
-        , world_pos_128{}
+        , world_pos_256{}
         , stage_pos{}
         , is_final(false)
         , weight(0.0f)
@@ -28,19 +29,21 @@ public:
     bool   is_final;
     float  weight;
 
-    template<typename T> requires is_f32<T> [[nodiscard]] constexpr const FVec2& worldPos() { return world_pos_32; }
-    template<typename T> requires is_f64<T> [[nodiscard]] constexpr const DVec2& worldPos() { return world_pos_64; }
-    template<typename T> requires is_f128<T> [[nodiscard]] constexpr const DDVec2& worldPos() { return world_pos_128; }
+    template<typename T> requires is_f32_v<T>  [[nodiscard]] constexpr const FVec2&  worldPos() { return world_pos_32; }
+    template<typename T> requires is_f64_v<T>  [[nodiscard]] constexpr const DVec2&  worldPos() { return world_pos_64; }
+    template<typename T> requires is_fdd_v<T> [[nodiscard]] constexpr const DDVec2& worldPos() { return world_pos_128; }
+    template<typename T> requires is_fqd_v<T> [[nodiscard]] constexpr const QDVec2& worldPos() { return world_pos_256; }
 
     void setWorldPos(FVec2 p) { world_pos_32 = p; }
     void setWorldPos(DVec2 p) { world_pos_64 = p; }
     void setWorldPos(DDVec2 p) { world_pos_128 = p; }
+    void setWorldPos(QDVec2 p) { world_pos_256 = p; }
 };
 
 class NormalizationField
 {
     std::vector<DVec2> local_field;
-    WorldObject128 bounds;
+    WorldObject256 bounds;
 
 public:
 
@@ -58,15 +61,15 @@ public:
     }
 
     template<typename T>
-    void updateField(const CameraInfo& camera, double scale)
+    void updateField(const CameraInfo& camera, const WorldStageTransform& camera_transform, double scale)
     {
-        T world_radius = ((T)scale / camera.relativeZoom<T>()) * T{ 2 };
+        f64 world_radius = (scale / camera.relativeZoom()) * 2.0;
         Vec2<T> cam_center_world = camera.pos<T>();
 
         // Get stage quad of world ellipse bounds for fast stage interpolation
         WorldObjectT<T> bounds;
-        bounds.setCamera(camera);
-        bounds.setWorldRect(cam_center_world - world_radius, world_radius * 2);
+        bounds.setWorldStageTransform(camera_transform);
+        bounds.setWorldRect(cam_center_world - world_radius, T{ world_radius * 2.0 });
         DQuad stage_quad = bounds.stageQuad();
 
         for (size_t i = 0; i < world_field.size(); i++)
@@ -75,7 +78,7 @@ public:
             const DVec2 pt = local_field[i];
 
             //px.world_pos = cam_center_world + (pt * world_radius);
-            px.setWorldPos(cam_center_world + (pt * world_radius));
+            px.setWorldPos(static_cast<Vec2<T>>(cam_center_world + (pt * world_radius)));
             px.stage_pos = stage_quad.lerpPoint(0.5 + pt * 0.5);
 
             px.weight = 1.0f - (float)pt.mag();
@@ -106,10 +109,10 @@ public:
             {
                 int i0 = range.first;
                 int i1 = range.second;
-                if constexpr (std::is_invocable_r_v<void, Callback, NormalizationPixel&>)
+                if constexpr (std::is_invocable_r_v<void, Callback, int, NormalizationPixel&>)
                 {
                     for (int i = i0; i < i1; i++)
-                        callback(world_field[i]);
+                        callback(i, world_field[i]);
                 }
                 else
                 {

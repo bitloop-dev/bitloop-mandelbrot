@@ -39,9 +39,9 @@ inline void colorGradientTemplate(double t, uint8_t& r, uint8_t& g, uint8_t& b)
     else if constexpr (type == GradientPreset::RAINBOW)
     {
         float a = (float)t * 3.14159265f;
-        r = (uint8_t)(sin(a) * sin(a) * 255);
-        g = (uint8_t)(sin(a + 2.0944f) * sin(a + 2.0944f) * 255);
-        b = (uint8_t)(sin(a + 4.1888f) * sin(a + 4.1888f) * 255);
+        r = (uint8_t)(bl::sin(a) * bl::sin(a) * 255);
+        g = (uint8_t)(bl::sin(a + 2.0944f) * bl::sin(a + 2.0944f) * 255);
+        b = (uint8_t)(bl::sin(a + 4.1888f) * bl::sin(a + 4.1888f) * 255);
     }
 }
 

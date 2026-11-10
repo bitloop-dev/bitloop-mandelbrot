@@ -138,7 +138,7 @@ inline GammaLUT<T> makeGammaLUT(float gamma)
     for (int i = 0; i <= GammaLUT<T>::N; ++i)
     {
         T x = i * lut.invN;
-        lut.table[i] = bl::pow(x, gamma);
+        lut.table[i] = bl::pow(x, T{ gamma });
     }
     return lut;
 }

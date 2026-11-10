@@ -91,7 +91,7 @@ struct MandelBookmark : public Hashable
     }
 
     std::string thumbName() const  // stem only
-    { return compression::b64_encode_u64(stable_hash()); }          
+    { return compression::b64_encode_u64(hash()); }
 
     std::string thumbFilename() const  // + extension
     { return thumbName() + ".webp"; }                            

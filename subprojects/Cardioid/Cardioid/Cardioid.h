@@ -12,8 +12,8 @@ void animatePlot(Viewport* ctx, double scale, double ox, double orig_angle, doub
 
 inline double cardioidSquaredDistance(double angle, double mx, double my)
 {
-    double cos_a = cos(angle);
-    double sin_a = sin(angle);
+    double cos_a = bl::cos(angle);
+    double sin_a = bl::sin(angle);
     double cos_2a = 2.0 * cos_a * cos_a - 1.0;
     double sin_2a = 2.0 * sin_a * cos_a;
 
@@ -51,20 +51,20 @@ inline double originalAngleFromPoint(
     int maxIter = 50)
 {
     // binary search in unstable region (slower)
-    double y_bound = 0.001 + 4 * pow(px - 0.23, 2.0);
+    double y_bound = 0.001 + 4 * bl::pow(px - 0.23, 2.0);
     if (px >= 0.25 && py < y_bound && py > -y_bound)
         return originalAngleBinarySearch(px, py);
 
     // Newton's method to find theta that minimizes distance^2 from (px,py)
-    double initialGuess = atan2(py, px - 0.25);
+    double initialGuess = bl::atan2(py, px - 0.25);
     double theta = initialGuess;
 
     for (int i = 0; i < maxIter; ++i)
     {
-        double _cos = cos(theta);
-        double _sin = sin(theta);
-        double _cos2 = cos(2.0 * theta);
-        double _sin2 = sin(2.0 * theta);
+        double _cos = bl::cos(theta);
+        double _sin = bl::sin(theta);
+        double _cos2 = bl::cos(2.0 * theta);
+        double _sin2 = bl::sin(2.0 * theta);
 
         // Compute Delta x and Delta y
         double X = (0.5 * _cos - 0.25 * _cos2) - px;
@@ -80,7 +80,7 @@ inline double originalAngleFromPoint(
             + 2.0 * (((0.5 * _cos - 0.5 * _cos2) * (0.5 * _cos - 0.5 * _cos2)) + Y * (-0.5 * _sin + _sin2));
 
         // If denominator is near zero, break (avoid divide by zero)
-        if (fabs(d2) < 1e-14) break;
+        if (bl::fabs(d2) < 1e-14) break;
 
         // Newton update
         double step = d1 / d2;
@@ -93,7 +93,7 @@ inline double originalAngleFromPoint(
             theta -= 2.0 * math::pi;
 
         // If the step is sufficiently small, we consider we've converged
-        if (fabs(step) < tolerance)
+        if (bl::fabs(step) < tolerance)
             break;
     }
 
@@ -121,12 +121,12 @@ inline void cardioidPolarCoord(
 
     orig_angle = math::wrapRadians2PI(originalAngleFromPoint(px, py));
     tangent_angle = math::wrapRadians2PI(1.5 * orig_angle);
-    tangent_x = 0.5 * cos(orig_angle) - 0.25 * cos(orig_angle * 2.0);
-    tangent_y = 0.5 * sin(orig_angle) - 0.25 * sin(orig_angle * 2.0);
+    tangent_x = 0.5 * bl::cos(orig_angle) - 0.25 * bl::cos(orig_angle * 2.0);
+    tangent_y = 0.5 * bl::sin(orig_angle) - 0.25 * bl::sin(orig_angle * 2.0);
 
     double dx = px - tangent_x;
     double dy = py - tangent_y;
-    double y1 = dy * cos(tangent_angle) - dx * sin(tangent_angle);
+    double y1 = dy * bl::cos(tangent_angle) - dx * bl::sin(tangent_angle);
 
     dist = -y1;
 
@@ -145,10 +145,10 @@ inline DVec2 fromPolarCoordinate(double angle, double dist)
 {
     double tangent_angle = 1.5 * angle;
     double perp_angle = tangent_angle - math::pi / 2.0;
-    double tx = 0.5 * cos(angle) - 0.25 * cos(angle * 2.0);
-    double ty = 0.5 * sin(angle) - 0.25 * sin(angle * 2.0);
-    double px = tx + cos(perp_angle) * dist;
-    double py = ty + sin(perp_angle) * dist;
+    double tx = 0.5 * bl::cos(angle) - 0.25 * bl::cos(angle * 2.0);
+    double ty = 0.5 * bl::sin(angle) - 0.25 * bl::sin(angle * 2.0);
+    double px = tx + bl::cos(perp_angle) * dist;
+    double py = ty + bl::sin(perp_angle) * dist;
     return { px, py };
 }
 
@@ -194,8 +194,8 @@ struct CumulativeCardioid : public std::vector<CardioidStepInfo>
             double scaled_step_angle = step_angle * angle_mult;
             plot_direction += scaled_step_angle;
 
-            plot_x += cos(plot_direction) * step_dist;
-            plot_y += sin(plot_direction) * step_dist;
+            plot_x += bl::cos(plot_direction) * step_dist;
+            plot_y += bl::sin(plot_direction) * step_dist;
 
 
             CardioidSegment segment;
@@ -217,20 +217,20 @@ struct CardioidLerper : public std::vector<LerpedCardioid>
         double old_plot_x = 0.25;
         double old_plot_y = 0.0;
         double old_segment_angle = 0.0;
-        int steps = static_cast<int>(round(math::tau / angle_step));
+        int steps = static_cast<int>(bl::round(math::tau / angle_step));
         double delta_angle;
         double delta_dist;
         double angle = 0.0;
         for (int i = 0; i <= steps; i++)
         {
-            double plot_x = 0.5 * cos(angle) - 0.25 * cos(angle * 2.0);
-            double plot_y = 0.5 * sin(angle) - 0.25 * sin(angle * 2.0);
+            double plot_x = 0.5 * bl::cos(angle) - 0.25 * bl::cos(angle * 2.0);
+            double plot_y = 0.5 * bl::sin(angle) - 0.25 * bl::sin(angle * 2.0);
 
             double dx = plot_x - old_plot_x;
             double dy = plot_y - old_plot_y;
-            double segment_angle = atan2(dy, dx);
+            double segment_angle = bl::atan2(dy, dx);
             delta_angle = math::closestAngleDifference(old_segment_angle, segment_angle);
-            delta_dist = sqrt(dx * dx + dy * dy);
+            delta_dist = bl::sqrt(dx * dx + dy * dy);
 
             ret.push_back({
                 delta_angle,
@@ -248,7 +248,7 @@ struct CardioidLerper : public std::vector<LerpedCardioid>
     void create(double angle_step, double scale_step)
     {
         CumulativeCardioid cumulative_cardioid = createCumulativeCardioid(angle_step);
-        int steps = static_cast<int>(round(1.0 / scale_step));
+        int steps = static_cast<int>(bl::round(1.0 / scale_step));
         double scale = 0.0;
         clear();
         for (int i = 0; i <= steps; i++)
@@ -345,7 +345,7 @@ struct CardioidLerper : public std::vector<LerpedCardioid>
 
         double dx = x - p.x;
         double dy = y - p.y;
-        double y1 = dy * cos(tangent_angle) - dx * sin(tangent_angle);
+        double y1 = dy * bl::cos(tangent_angle) - dx * bl::sin(tangent_angle);
 
         return {angle, -y1};
     }
@@ -371,8 +371,8 @@ struct CardioidLerper : public std::vector<LerpedCardioid>
         double perp_angle = ret.angle - math::half_pi;
         
         return {
-            ret.x + cos(perp_angle) * dist,
-            ret.y + sin(perp_angle) * dist
+            ret.x + bl::cos(perp_angle) * dist,
+            ret.y + bl::sin(perp_angle) * dist
         };
     }
 };
@@ -407,7 +407,7 @@ struct Cardioid_Scene : public Scene<Cardioid_Scene>
     
     void sceneStart() override;
     void sceneMounted(Viewport* viewport) override;
-    void sceneProcess() override;
+    void sceneProcess(double dt) override;
 
     // --- Update methods ---
 

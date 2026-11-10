@@ -20,9 +20,9 @@ FORCE_INLINE bool mandel_kernel_perturb_simd_unrolled(
     const int max_ref = std::max(0, ref.max_ref);
 
     int ref_i = 0, n = 0;
-    T_lo dx = 0, dy = 0;
-    T_lo ddx = T_lo(1), ddy = T_lo(0);
-    T_lo zx_prev = 0, zy_prev = 0;
+    T_lo dx{ 0.0 }, dy{ 0.0 };
+    T_lo ddx{ 1.0 }, ddy{ 0.0 };
+    T_lo zx_prev{ 0.0 }, zy_prev{ 0.0 };
 
     // unroll manually
     #if defined(__clang__)
@@ -60,20 +60,20 @@ FORCE_INLINE bool mandel_kernel_perturb_simd_unrolled(
                 stripe.accumulate(c, s);                                                                \
             }                                                                                           \
             if (r2 > ER2) {                                                                             \
-                const T_lo log_abs_z = T_lo(0.5) * std::log(std::max(r2, MIN_FLT));                     \
-                const T_lo nu = T_lo(n + 2) - std::log2(std::max(log_abs_z, MIN_FLT));                  \
+                const f64 log_abs_z = 0.5 * std::log(std::max((f64)r2, (f64)MIN_FLT));                  \
+                const f64 nu = f64(n + 2) - std::log2(std::max(log_abs_z, (f64)MIN_FLT));               \
                 depth = (f64)(nu - smooth_depth_offset_d<F>());                                         \
                 if (depth < 0) depth = 0;                                                               \
                                                                                                         \
                 if constexpr (NEED_DIST) {                                                              \
-                    const T_lo r = std::sqrt(r2);                                                       \
-                    const T_lo dzabs = T_lo(std::hypot(ddx, ddy));                                      \
+                    const f64 r = std::sqrt((f64)r2);                                                   \
+                    const f64 dzabs = std::hypot((f64)ddx, (f64)ddy);                                   \
                     dist = (f64)((dzabs == 0) ? 0 : (r * std::log(r) / dzabs));                         \
                 }                                                                                       \
                 else dist = 0;                                                                          \
                                                                                                         \
                 if constexpr (NEED_STRIPES)                                                             \
-                    stripe.escape(r2);                                                                  \
+                    stripe.escape((f64)r2);                                                             \
                                                                                                         \
                 return true;                                                                            \
             }                                                                                           \
@@ -113,7 +113,7 @@ FORCE_INLINE bool mandel_kernel_perturb_simd_unrolled(
 
     // Did not escape
     depth = INSIDE_MANDELBROT_SET;
-    if constexpr (NEED_DIST)    dist = T_lo(-1);
+    if constexpr (NEED_DIST)    dist = -1.0;
     if constexpr (NEED_STRIPES) stripe.no_escape();
     return true;
 }

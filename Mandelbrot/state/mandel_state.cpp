@@ -132,9 +132,13 @@ std::string MandelState::serialize() const
         /// Mark JSON floats with "CLEANFLOAT()" to remove trailing zeros/rounding errors when serializing
 
         // View
-        info["x"] = to_string(camera.x<f128>(), decimals);
-        info["y"] = to_string(camera.y<f128>(), decimals);
-        info["z"] = to_string(camera.relativeZoom<f128>(), 5, false, true, true);
+        info["x"] = to_string(camera.x<fqd>(), decimals);
+        info["y"] = to_string(camera.y<fqd>(), decimals);
+        info["z"] = to_string(
+            camera.relativeZoom(),
+            5,
+            std::ios_base::scientific,
+            bl::trailing_zero_policy::strip);
         if (camera.stretchX() != 1.0) info["a"] = JSON::markCleanFloat(camera.stretchX(), 3);
         if (camera.stretchY() != 1.0) info["b"] = JSON::markCleanFloat(camera.stretchY(), 3);
         if (camera.rotation() != 0.0) info["r"] = JSON::markCleanFloat(math::toDegrees(camera.rotation()), 0);
@@ -210,16 +214,19 @@ std::string MandelState::serialize() const
 
         // Disabled Capture filters
         std::string concatenated_filters_b64;
-        auto& all_presets = main_window()->getSnapshotPresetManager()->allPresets();
-        for (const auto &p : all_presets)
+        const SnapshotPresetList* all_presets = capturePresetList();
+        if (all_presets)
         {
-            bool found = valid_presets.find(p.hashedAlias()) != valid_presets.end();
-
-            // Only save filter hash if not a valid target
-            if (!found)
+            for (const auto &p : *all_presets)
             {
-                concatenated_filters_b64 += p.getAlias();
-                concatenated_filters_b64 += ";";
+                bool found = valid_presets.find(p.hashedAlias()) != valid_presets.end();
+
+                // Only save filter hash if not a valid target
+                if (!found)
+                {
+                    concatenated_filters_b64 += p.getAlias();
+                    concatenated_filters_b64 += ";";
+                }
             }
         }
         if (concatenated_filters_b64 != "")
@@ -304,17 +311,17 @@ bool MandelState::_deserialize(std::string_view sv, bool COMPRESS_CONFIG)
 
         // View
         if (info.contains("x") && info.find("x").value().is_string())
-            camera.setX(from_string(info.value("x", "0").c_str())); // f128 path (deserialize from string)
+            camera.setX(bl::parse<fqd>(info.value("x", std::string{ "0" }), fqd{ 0.0 }));
         else
-            camera.setX(info.value("x", 0.0)); // old double path (raw)
+            camera.setX((fqd)info.value("x", 0.0)); // old double path (raw)
 
         if (info.contains("y") && info.find("y").value().is_string())
-            camera.setY(from_string(info.value("y", "0").c_str())); // f128 path (deserialize from string)
+            camera.setY(bl::parse<fqd>(info.value("y", std::string{ "0" }), fqd{ 0.0 }));
         else
-            camera.setY(info.value("y", 0.0)); // old double path (raw)
+            camera.setY((fqd)info.value("y", 0.0)); // old double path (raw)
 
         if (info.contains("z") && info.find("z").value().is_string())
-            camera.setRelativeZoom(from_string(info.value("z", "0").c_str())); // f128 path (deserialize from string)
+            camera.setRelativeZoom(bl::parse<f64>(info.value("z", std::string{ "0" }), 0.0));
         else
             camera.setRelativeZoom(info.value("z", 0.0)); // old double path (raw)
 
@@ -405,17 +412,19 @@ bool MandelState::_deserialize(std::string_view sv, bool COMPRESS_CONFIG)
 
         // Disabled Capture filters
         std::string          concat_aliases = info.value("R", std::string(""));
-        SnapshotPresetList&  all_presets    = main_window()->getSnapshotPresetManager()->allPresets();
+        const SnapshotPresetList* all_presets = capturePresetList();
         string_view_list     aliases        = text::split(concat_aliases, ';', true);
 
-
         valid_presets.clear();
-        for (const auto& preset : all_presets)
-            valid_presets[preset.hashedAlias()] = true;
+        if (all_presets)
+        {
+            for (const auto& preset : *all_presets)
+                valid_presets[preset.hashedAlias()] = true;
+        }
 
         for (const auto& alias : aliases)
         {
-            CapturePreset* preset = all_presets.findByAlias(alias);
+            const CapturePreset* preset = all_presets ? all_presets->findByAlias(alias) : nullptr;
             if (preset) valid_presets[preset->hashedAlias()] = false;
         }
     }

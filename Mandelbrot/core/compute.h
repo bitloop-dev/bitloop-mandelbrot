@@ -1,6 +1,8 @@
 #pragma once
 
+
 #include <bitloop.h>
+#include <bitloop/util/simd.h>
 
 #include "../shading/shading.h"
 #include "conversions.h"
@@ -11,7 +13,7 @@
 /// official kernels
 #include "../kernels/kernel_mandel.hpp"
 #include "../kernels/kernel_mandel_perturb.hpp"
-#include "../kernels/kernel_mandel_perturb_simd.hpp"
+//#include "../kernels/kernel_mandel_perturb_simd.hpp"
 #include "../kernels/kernel_mandel_perturb_simd_unrolled.hpp"
 
 /// experimental kernels
@@ -42,28 +44,40 @@ FORCE_INLINE bool interiorCheck(T x0, T y0)
     return false;
 }
 
-/// ----- calculate raw [iter, dist, stripe] values for each field pixel -----
-template<typename T, KernelFeatures F, KernelMode K>
-bool Mandelbrot_Scene::compute_mandelbrot(int timeout, double& field_compute_ms)
+template<typename T, KernelFeatures F, ComputeBackend BACKEND>
+bool Mandelbrot_Scene::computeMandelbrot(int timeout, double& field_compute_ms)
 {
     int threads = Thread::threadCount();
     int compute_tiles = threads;
 
     EscapeField& pending_field = pendingField();
-    WorldRasterGrid128& pending_grid = pendingRasterGrid();
+    WorldRasterGrid256& pending_grid = pendingRasterGrid();
 
-    f32 tiles_sqrt = ceil(sqrt((f32)compute_tiles));
-    int tile_w = (int)ceil((f32)pending_grid.rasterWidth() / tiles_sqrt);
-    int tile_h = (int)ceil((f32)pending_grid.rasterHeight() / tiles_sqrt);
+    f32 tiles_sqrt = bl::ceil(bl::sqrt((f32)compute_tiles));
+    int tile_w = (int)bl::ceil((f32)pending_grid.rasterWidth() / tiles_sqrt);
+    int tile_h = (int)bl::ceil((f32)pending_grid.rasterHeight() / tiles_sqrt);
     bool frame_complete = false;
 
     if constexpr (
-        K == KernelMode::PERTURBATION ||
-        K == KernelMode::PERTURBATION_SIMD || 
-        K == KernelMode::PERTURBATION_SIMD_UNROLLED)
+        BACKEND == ComputeBackend::PERTURBATION ||
+        //BACKEND == ComputeBackend::PERTURBATION_SIMD ||
+        BACKEND == ComputeBackend::PERTURBATION_SIMD_UNROLLED)
     {
         // get high precision anchor world pos
         Vec2<T> anchor = camera.pos<T>();
+        //static Vec2<T> old_anchor = anchor;
+        //Vec2<T> anchor_delta = anchor - old_anchor;
+        //if (!anchor_delta.isZero())
+        //    blPrint() << "CAMERA DELTA X:" << bl::to_string(anchor_delta.x) << "  Y:" << bl::to_string(anchor_delta.y) << "\n";
+        //old_anchor = anchor;
+
+        ///blPrint() << "ANCHOR X:" << bl::to_string(anchor.x) << "  Y:" << bl::to_string(anchor.y) << "\n";
+        //blPrint() << "CAMERA X:" << bl::to_string(camera.x<fqd>()) << "  Y:" << bl::to_string(camera.y<fqd>()) << "\n";
+        ///blPrint() << "-----------------------------------------------------------------------------";
+
+        ///blPrint() << "anchor T   : " << bl::to_string(camera.x<T>());
+        ///blPrint() << "anchor 256 : " << bl::to_string(camera.x<fqd>());
+        ///blPrint() << "delta      : " << bl::to_string(camera.x<fqd>() - fqd(camera.x<T>()));
 
         // calculate reference orbit in high precision, downcast to low
         //if (anchor_dd != ref_orbit_anchor)
@@ -74,13 +88,17 @@ bool Mandelbrot_Scene::compute_mandelbrot(int timeout, double& field_compute_ms)
 
             RefOrbit<T> orbit_hi;
             build_ref_orbit<T, F>(anchor.x, anchor.y, iter_lim, orbit_hi);
+            //blPrint() << "orbit_hi.cy: " << bl::to_string(orbit_hi.cy);
+
             downcast_orbit<T, T_lo, F>(orbit_hi, ref_orbit_lo);
+            //blPrint() << "orbit_lo.steps[0].posty: " << ref_orbit_lo.steps[0].posty;
 
             //ref_orbit_anchor = anchor_dd;
             //blPrint() << "recalculated reference orbit";
         }
 
         SimpleTimer timer;
+
 
         // run perturbation kernel for remaining tiles pixels
         frame_complete = pending_grid.forEachWorldTilePixel<T>(tile_w, tile_h, P, [&](int x, int y, T wx, T wy)
@@ -108,12 +126,17 @@ bool Mandelbrot_Scene::compute_mandelbrot(int timeout, double& field_compute_ms)
             #define MANDEL_ENXTENDED_ARG
             #endif
 
-            if constexpr (K == KernelMode::PERTURBATION_SIMD_UNROLLED)
+            //if (x == 0 && y == 0)
+            //{
+            //    blPrint() << "first pixel world-y: " << bl::to_string(wy);
+            //}
+
+            if constexpr (BACKEND == ComputeBackend::PERTURBATION_SIMD_UNROLLED)
                 mandel_kernel_perturb_simd_unrolled<T_lo, F>(ref_orbit_lo, dcx_lo, dcy_lo, iter_lim, depth, dist, stripe);
-            else if constexpr (K == KernelMode::PERTURBATION_SIMD)
-                mandel_kernel_perturb_simd<T_lo, F>(ref_orbit_lo, dcx_lo, dcy_lo, iter_lim, depth, dist, stripe MANDEL_ENXTENDED_ARG);
+            //else if constexpr (BACKEND == ComputeBackend::PERTURBATION_SIMD)
+            //    mandel_kernel_perturb_simd<T_lo, F>(ref_orbit_lo, dcx_lo, dcy_lo, iter_lim, depth, dist, stripe MANDEL_ENXTENDED_ARG);
             else
-                mandel_kernel_perturb<T_lo, F>(ref_orbit_lo, dcx_lo, dcy_lo, iter_lim, depth, dist, stripe);
+                mandel_kernel_perturb<T_lo, F>(ref_orbit_lo, dcx_lo, dcy_lo, iter_lim, depth, dist, stripe/*, x == 0 && y == 0*/);
             //{
             //    f32 _depth, _dist;
             //    mandel_kernel_perturb_32<T_lo, F>(ref_orbit_lo, dcx_lo, dcy_lo, iter_lim, _depth, _dist, stripe);
@@ -128,6 +151,11 @@ bool Mandelbrot_Scene::compute_mandelbrot(int timeout, double& field_compute_ms)
             #undef MANDEL_ENXTENDED_ARG
             #endif
         }, compute_tiles, timeout);
+
+        //if (frame_complete)
+        //{
+        //    blPrint() << "--- frame complete ---";
+        //}
 
         field_compute_ms = timer.elapsed();
 
@@ -144,7 +172,7 @@ bool Mandelbrot_Scene::compute_mandelbrot(int timeout, double& field_compute_ms)
         double fdp_tolerance = 9.0 * (1.0 - normalize_field_precision);
         double fdp_tolerance2 = fdp_tolerance * fdp_tolerance;
 
-        norm_field.forEach([&](NormalizationPixel& field_pixel)
+        norm_field.forEach([&](int i [[maybe_unused]], NormalizationPixel& field_pixel)
         {
             // already done 100% precise manual calculation on previous mid-compute frame? skip
             if (field_pixel.is_final) return;
@@ -179,12 +207,12 @@ bool Mandelbrot_Scene::compute_mandelbrot(int timeout, double& field_compute_ms)
             #define MANDEL_ENXTENDED_ARG
             #endif
 
-            if constexpr (K == KernelMode::PERTURBATION_SIMD_UNROLLED)
+            if constexpr (BACKEND == ComputeBackend::PERTURBATION_SIMD_UNROLLED)
                 mandel_kernel_perturb_simd_unrolled<T_lo, F>(ref_orbit_lo, dcx_lo, dcy_lo, iter_lim, depth, dist, stripe);
-            else if constexpr (K == KernelMode::PERTURBATION_SIMD)
-                mandel_kernel_perturb_simd<T_lo, F>(ref_orbit_lo, dcx_lo, dcy_lo, iter_lim, depth, dist, stripe MANDEL_ENXTENDED_ARG);
+            //else if constexpr (BACKEND == ComputeBackend::PERTURBATION_SIMD)
+            //    mandel_kernel_perturb_simd<T_lo, F>(ref_orbit_lo, dcx_lo, dcy_lo, iter_lim, depth, dist, stripe MANDEL_ENXTENDED_ARG);
             else
-                mandel_kernel_perturb<T_lo, F>(ref_orbit_lo, dcx_lo, dcy_lo, iter_lim, depth, dist, stripe);
+                mandel_kernel_perturb<T_lo, F>(ref_orbit_lo, dcx_lo, dcy_lo, iter_lim, depth, dist, stripe, i==0);
             //{
             //    f32 _depth, _dist;
             //    mandel_kernel_perturb_32<T_lo, F>(ref_orbit_lo, dcx_lo, dcy_lo, iter_lim, _depth, _dist, stripe);
@@ -229,7 +257,7 @@ bool Mandelbrot_Scene::compute_mandelbrot(int timeout, double& field_compute_ms)
 
         field_compute_ms = timer.elapsed();
     
-        norm_field.forEach([&](NormalizationPixel& field_pixel)
+        norm_field.forEach([&](int i [[maybe_unused]], NormalizationPixel& field_pixel)
         {
             // already calculated on previous frame? skip
             if (field_pixel.is_final) return;
@@ -419,8 +447,8 @@ void Mandelbrot_Scene::calculate_normalize_info()
     
     // Calculate normalized dist
     f64 sharpness_ratio = ((100.0 - dist_params.cycle_dist_sharpness) / 100.0 + 0.00001);
-    f64 r1 = 0.1 / camera.relativeZoom<f64>();
-    f64 r2 = 10.0 / camera.relativeZoom<f64>();
+    f64 r1 = 0.1 / camera.relativeZoom();
+    f64 r2 = 10.0 / camera.relativeZoom();
     f64 raw_min_dist = r1 * sharpness_ratio;
     f64 raw_max_dist = r2;
     f64 log_min_dist = std::log(raw_min_dist);
@@ -511,7 +539,7 @@ void Mandelbrot_Scene::calculate_normalize_info()
         }
     }
 
-    auto stripeMagFromZoom = [](const f128& rel_zoom) -> f32
+    auto stripeMagFromZoom = [](const f64& rel_zoom) -> f32
     {
         const f32 zf = (f32)bl::log10(rel_zoom);
         const f32 base_spline_mag = MandelSplines::stripe_zf_spline(zf);
@@ -534,7 +562,7 @@ void Mandelbrot_Scene::calculate_normalize_info()
 
     // stripe magnitude (fairly good approximation from zoom + spline)
     // avoiding use of histogram for stripe magnitude allows for smoother 'phase' animation
-    f32 stripe_mag_dynamic = stripeMagFromZoom(camera.relativeZoom<f128>());
+    f32 stripe_mag_dynamic = stripeMagFromZoom(camera.relativeZoom());
 
     /// // ---- stripe magnutide (histogram version - what the below approximation tries to mimic) ----
     /// f32 stripe_mag_hist;
@@ -589,7 +617,7 @@ void Mandelbrot_Scene::calculate_normalize_info()
     if (iter_params.iter_dynamic_limit)
     {
         /// "color_cycle_iters" represents ratio of (assumed) iter_lim
-        f64 assumed_iter_lim = mandelbrotIterLimit(camera.relativeZoom<f128>());
+        f64 assumed_iter_lim = mandelbrotIterLimit(camera.relativeZoom());
         f64 color_cycle_iters = iter_params.iter_cycle_value * assumed_iter_lim;
 
         active_field.log_color_cycle_iters = math::linearLog1pLerp(color_cycle_iters, iter_params.iter_log1p_weight);
@@ -609,7 +637,7 @@ void Mandelbrot_Scene::normalize_field()
     // todo: implement with GLSL shader
 
     EscapeField& field = activeField();
-    WorldRasterGrid128& grid = activeRasterGrid();
+    WorldRasterGrid256& grid = activeRasterGrid();
 
     // raw limits / mean values
     f64 raw_min_depth   = field.raw_min_depth;

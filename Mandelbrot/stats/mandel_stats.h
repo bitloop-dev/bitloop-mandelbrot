@@ -58,7 +58,7 @@ struct MandelStats
 
     // mandelbrot stats for the pixel the mouse is hovered over
     EscapeFieldPixel hovered_field_pixel;
-    DDVec2 hovered_field_world_pos;
+    QDVec2 hovered_field_world_pos;
 
     // always run sync (but only sync dirty states by flag)
     bool operator==(const MandelStats&) const { return false; }

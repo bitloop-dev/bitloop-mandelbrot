@@ -14,8 +14,22 @@ SIM_BEG;
 
 void Mandelbrot_Project::projectPrepare(Layout& layout)
 {
-    Mandelbrot_Scene::Config config;
-    create<Mandelbrot_Scene>(config)->mountTo(layout);
+    Mandelbrot_Scene::Config source_config;
+    SceneHandle<Mandelbrot_Scene> source_scene = create<Mandelbrot_Scene>("source", source_config);
+
+    layout << source_scene;
+
+    if (Mandelbrot_Scene::split_screen_mode == SplitScreenMode::SPLIT_VIEW)
+    {
+        Mandelbrot_Scene::Config linked_config;
+        linked_config.fractal_formula = FractalFormula::MANDELBROT;
+        linked_config.scene_link.source = source_scene;
+        linked_config.scene_link.sync.camera = true;
+        linked_config.scene_link.sync.quality = true;
+        linked_config.scene_link.sync.style = true;
+
+        layout << create<Mandelbrot_Scene>("linked", linked_config);
+    }
 }
 
 /// ─────────────────────── Scene ───────────────────────
@@ -24,7 +38,11 @@ void Mandelbrot_Scene::sceneStart()
 {
     Thread::setMaxThreads(MAX_THREADS);
 
-    SnapshotPresetList& all_presets = main_window()->getSnapshotPresetManager()->allPresets();
+    SnapshotPresetList& all_presets = snapshotPresetManager().allPresets();
+    setCapturePresetList(&all_presets);
+    state_a.setCapturePresetList(&all_presets);
+    state_b.setCapturePresetList(&all_presets);
+
     valid_presets.clear();
     for (const auto& preset : all_presets)
         valid_presets[preset.hashedAlias()] = true;
@@ -33,6 +51,9 @@ void Mandelbrot_Scene::sceneStart()
 
 
     font = NanoFont::create("/data/fonts/DroidSans.ttf");
+
+    for (int phase = 0; phase < PHASE_COUNT; phase++)
+        phases[phase].shader.setRenderThreadQueue(renderThreadQueue());
 
     for (int phase = 0; phase < PHASE_COUNT; phase++)
         phases[phase].shader.updateFragmentSource(init_shader_source);
@@ -55,34 +76,36 @@ void Mandelbrot_Scene::sceneStart()
         "aAdH41jVsjsDgnFhmhRKU6rGoBDHVntV7EcNINDXX62QpM1wAry6AhzIwQya9VsfXBy8WIn5AB2zOiy08IKg"
         "WBr9m5YhPL66zmDsHhs9hn0scrcTvzueHd1xshl8yZaYQX5Tl6XmaOSFE83GoiTYDYwjV"
     );
+
 }
 
 void Mandelbrot_Scene::sceneDestroy()
 {
-    main_window()->threadQueue().post([&]()
+    auto cleanup = [this]()
     {
         for (MandelPhaseData& phase : phases)
             phase.field.destroyFeaturesTexture();
 
         gradient_tex.destroy();
         bookmark_manager.destroyAllTextures();
-    });
+    };
+
+    if (isHeadless())
+        cleanup();
+    else
+        main_window()->threadQueue().post(cleanup);
 }
 
 void Mandelbrot_Scene::sceneMounted(Viewport* ctx)
 {
     //camera->setCameraStageSnappingSize(1);
-    camera.setSurface(ctx);
     camera.setOriginViewportAnchor(Anchor::CENTER);
-    camera.focusWorldRect(-2.25, -1.25, 0.75, 1.25);
+    camera.focusWorldRect(*ctx, -2.25, -1.25, 0.75, 1.25);
     camera.uiSetCurrentAsDefault();
-
-    for (int phase = 0; phase < PHASE_COUNT; phase++)
-        phases[phase].grid.setCamera(camera);
 
     navigator.setTarget(camera);
     navigator.setDirectCameraPanning(true);
-    navigator.restrictRelativeZoomRange(0.0001_dd, 5.0e28_dd);
+    navigator.restrictRelativeZoomRange(0.0001, 1.0e62);
 
     #ifdef __EMSCRIPTEN__
     // If URL has encoded state data, load on startup
@@ -101,6 +124,10 @@ std::string Mandelbrot_Scene::serializeState() const
 void Mandelbrot_Scene::loadState(std::string_view data, bool is_big_jump)
 {
     deserialize(data);
+
+    auto float_type = getRequiredFloatType(mandel_features, camera.relativeZoom());
+    camera.setMaxPrecision((FloatType)((int)float_type + 1));
+
     update_editor_shader_source = true;
 
     // on a drastic change, assume the worst about the difficulty of the target state,
@@ -132,7 +159,7 @@ int Mandelbrot_Scene::updateComputeTimeout()
     {
         // potential multi-frame compute, optimize for balance between speed / responsiveness
         f64 expected_next_phase_dt = phase_timers[std::max(0, computing_phase - 1)] * 8.0;
-        if (expected_next_phase_dt > 256.0 || float_type == FloatingPointType::F128)
+        if (expected_next_phase_dt > 256.0 || float_type >= MandelFloatType::F128)
             compute_timeout = 256; // slightly larger timeout for difficult frames = faster compute, more interaction lag
         else
             compute_timeout = 512; // enough to one-shot easy phases < 256ms expected (timeout as a last resort)
@@ -145,22 +172,33 @@ void Mandelbrot_Scene::viewportProcess(Viewport* ctx, double dt)
     // ────── disable capture this frame, re-enable depending on mode ──────
     permitCaptureFrame(false);
 
-    if (rendering_examples)
-        loadNextBatchSnapshotState();
-    
     // ────── automatic updates (animation / tweening) ──────
-    updateAnimation();
-    updateSteadyZoom(dt);
+    const bool paused = getProject().isPaused();
+    if (!paused)
+    {
+        if (rendering_examples)
+            loadNextBatchSnapshotState();
+
+        if (!syncsStyle())
+            updateAnimation();
+        if (!syncsCamera())
+            updateSteadyZoom(dt);
+    }
+
+    applySceneSynchronization();
 
     // ────── update states which can determine whether we need to recompute ──────
-    updateCameraView(ctx);
-    updateQuality();
+    WorldStageTransform camera_transform = ctx->cameraTransform(camera);
+    updateCameraView(ctx, camera_transform);
+
     updateEnabledKernelFeatures();
+    updateQuality();
+    resolveKernelSelection();
 
     if (mandelChanged())
         resetCompute();
 
-    updateFieldSizes();
+    updateFieldSizes(camera_transform);
 
     // ────── compute unnormalized field values (ITER, DIST, STRIPE) ──────
     bool finished_compute = false;
@@ -180,8 +218,8 @@ void Mandelbrot_Scene::viewportProcess(Viewport* ctx, double dt)
         bool normalize_depth = iter_params.iter_normalize_depth;
         bool invert_dist = dist_params.dist_invert;
 
-        table_invoke(dispatch_table(calculate_normalize_info), float_type, mandel_features);
-        table_invoke(dispatch_table(normalize_field),          float_type, mandel_features, normalize_depth, invert_dist, maxdepth_show_optimized);
+        bl_table_invoke(bl_dispatch_table(calculate_normalize_info), bl_enum_type(float_type), mandel_features);
+        bl_table_invoke(bl_dispatch_table(normalize_field),          bl_enum_type(float_type), mandel_features, normalize_depth, invert_dist, maxdepth_show_optimized);
     }
 
     // ────── reshade on shader source change ──────
@@ -195,27 +233,30 @@ void Mandelbrot_Scene::viewportProcess(Viewport* ctx, double dt)
     }
 
     // ────── check if we should permit frame capture on next draw (snapshot/record) ──────
-    processCapturing(finished_compute, reshade);
+    if (!paused)
+        processCapturing(finished_compute, reshade);
 
     // undo/redo logic
-    if (!platform()->isMobile())
+    if (!isHeadless() && !platform()->isMobile())
         processUndoRedo(normalization_opts_changed, gradient_changed);
 
     // Gather stats / realtime info
     collectStats(renormalize);
 
     #if MANDEL_UNVERSIONED_EXPERIMENTAL
-    experimental.process();
+    if (!paused)
+        experimental.process();
     #endif
 
     first_frame = false;
 
-    bool toggled_overelays = Changed(show_axis, display_alignment_overlay, show_interactive_cardioid, preview_normalization_field);
-    if (reshade || toggled_overelays)
+    bool toggled_overlays = Changed(show_axis, display_alignment_overlay, show_interactive_cardioid, preview_normalization_field);
+    bool angle_changed = Changed(ani_angle);
+    if (reshade || toggled_overlays || angle_changed)
         requestRedraw(true);
 
-    if (mouse->buttonDown(MouseButton::LEFT) || cam_vel_zoom != 1 || !cam_vel_pos.isZero())
-        requestImmediateUpdate();
+    //if (mouse->buttonDown(MouseButton::LEFT) || cam_vel_zoom != 1 || !cam_vel_pos.isZero())
+    //    requestImmediateUpdate();
 }
 
 void Mandelbrot_Scene::renderShaderChain(Viewport* ctx) const
@@ -224,7 +265,7 @@ void Mandelbrot_Scene::renderShaderChain(Viewport* ctx) const
     FVec2 inv_size = FVec2((f32)ctx->getGlobalScale()) / (FVec2)ctx->outputSize();
     
     const EscapeField& field = activeField();
-    const WorldRasterGrid128& grid = activeRasterGrid();
+    const WorldRasterGrid256& grid = activeRasterGrid();
 
     phases[active_phase].shader.render(grid.rasterWidth(), grid.rasterHeight(), [&](const ShaderSurface& s)
     {
@@ -244,20 +285,22 @@ void Mandelbrot_Scene::renderShaderChain(Viewport* ctx) const
 
 void Mandelbrot_Scene::viewportDraw(Viewport* ctx) const
 {
+    ctx->transform(camera);
+
     if (reshade)
         renderShaderChain(ctx);
-
-    // apply 128-bit camera world transformation
-    ctx->setTransform(camera.getTransform());
 
     const ShaderSurface* composite_surface = phases[active_phase].shader.outputSurface();
 
     // Draw active phase bitmap
     ///ctx->setGlobalAlpha(0.5);
-    ctx->drawShaderSurface(*composite_surface, 0.0f, 0.0f, (f32)surface_w, (f32)surface_h);
+
+    ctx->worldMode();
+    ctx->drawShaderSurface<fqd>(*composite_surface, phases[active_phase].grid.worldQuad());
+
     ///ctx->setGlobalAlpha(1.0);
     
-    double zoom_mag = camera.relativeZoom<f64>();
+    double zoom_mag = camera.relativeZoom();
 
     if (show_axis && zoom_mag < 1.0e7)
         ctx->drawWorldAxis(0.5, 0, 0.5);
@@ -283,7 +326,7 @@ void Mandelbrot_Scene::viewportDraw(Viewport* ctx) const
         for (auto& p : norm_field.world_field)
         {
             float rad = std::max(1.0f, p.weight * 4.0f);
-            ctx->fillEllipse<f128>(p.stage_pos, f128{ rad });
+            ctx->fillEllipse<fqd>(p.stage_pos, fqd{ rad });
         }
 		ctx->worldMode();
     }
@@ -296,6 +339,7 @@ void Mandelbrot_Scene::viewportDraw(Viewport* ctx) const
     if (show_interactive_cardioid && zoom_mag < 1000000.0)
     {
         // interactive cardioid
+        ctx->worldMode();
         Cardioid::plot(this, ctx, false);
         Cardioid::animatePlot(ctx, 1.0, 0.0, ani_angle);
     }
@@ -346,9 +390,12 @@ void Mandelbrot_Scene::onEvent(Event e)
 {
     if (!e.ownedBy(this))
         return;
+
+    if (syncsCamera())
+        return;
     
-    // don't permit world navigation while tweening
-    if (tweening || isRecording())
+    // don't permit world navigation while tweening is advancing
+    if (tweening && !getProject().isPaused())
         return;
 
     //if (e.sdl()->type == SDL_EVENT_DROP_FILE)
@@ -357,15 +404,16 @@ void Mandelbrot_Scene::onEvent(Event e)
     //    blPrint() << "Mandelbrot: " << path;
     //}
 
-    DDVec2 old_pos = camera.pos<f128>();
-    f128 old_zoom = camera.relativeZoom<f128>();
+    QDVec2 old_pos = camera.pos<fqd>();
+    f64 old_zoom = camera.relativeZoom();
+
     
     if (navigator.handleWorldNavigation(e, true, true))
     {
         // camera altered - calculate velocities by comparing with previous frame, smooth with SMA
-        f128 zoom = camera.relativeZoom<f128>();
-        avg_vel_pos.push(camera.pos<f128>() - old_pos);
-        avg_vel_zoom.push( (double)(zoom / old_zoom) );
+        f64 zoom = camera.relativeZoom();
+        avg_vel_pos.push(camera.pos<fqd>() - old_pos);
+        avg_vel_zoom.push( (f64)(zoom / old_zoom) );
 
         cam_vel_pos = avg_vel_pos.average();
         cam_vel_zoom = (avg_vel_zoom.average() - 1) * 0.6 + 1;
@@ -385,6 +433,19 @@ void Mandelbrot_Scene::onEvent(Event e)
 
 void Mandelbrot_Scene::onKeyDown(KeyEvent e)
 {
+    // todo: make method in navigator
+    if (!syncsCamera())
+    {
+        if (e.scanCode() == SDL_SCANCODE_LEFT)
+            camera.setX(camera.x<fqd>() - 1e-50);
+        else if (e.scanCode() == SDL_SCANCODE_RIGHT)
+            camera.setX(camera.x<fqd>() + 1e-50);
+        if (e.scanCode() == SDL_SCANCODE_UP)
+            camera.setY(camera.y<fqd>() - 1e-50);
+        else if (e.scanCode() == SDL_SCANCODE_DOWN)
+            camera.setY(camera.y<fqd>() + 1e-50);
+    }
+
     historyOnKeyDown(e);
 }
 

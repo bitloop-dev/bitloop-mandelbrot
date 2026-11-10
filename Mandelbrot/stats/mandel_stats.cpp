@@ -49,7 +49,7 @@ void Mandelbrot_Scene::UI::populateStats()
 
         const float col1_w = ImGui::CalcTextSize(col1_longest).x + ImGui::GetStyle().CellPadding.x;
 
-        bl_pull(stats, camera, deduced_kernel_mode, float_type, mandel_features, steady_zoom_pct, dt_last, computing_phase);
+        bl_pull(stats, camera, resolved_fractal_formula, resolved_compute_backend, float_type, mandel_features, steady_zoom_pct, dt_last, computing_phase);
 
         int decimals = camera.getPositionDecimals();
 
@@ -62,10 +62,11 @@ void Mandelbrot_Scene::UI::populateStats()
                 SetupTable2(col1_w);
 
                 // float precision
-                const char* float_precision = FloatingPointTypeNames[(int)float_type];
+                const char* float_precision = FloatTypeNames[(int)float_type];
                 TableRowText2("Float precision", float_precision);
                 TableRowText2("Current phase", "%d/%d", computing_phase, PHASE_COUNT-1);
-                TableRowText2("Kernel", KernelModeNames[(int)deduced_kernel_mode]);
+                TableRowText2("Formula", FractalFormulaNames[(int)resolved_fractal_formula]);
+                TableRowText2("Backend", ComputeBackendNames[(int)resolved_compute_backend]);
 
                 #if MANDEL_EXTENDED_FIELD_STATS
                 ImGui::Spacing();
@@ -194,14 +195,14 @@ void Mandelbrot_Scene::UI::populateStats()
                 auto px = stats.hovered_field_pixel;
 
                 float phase = stripe_params.phase;
-                const f64 LOG_ER2 = table_invoke(dispatch_table(log_escape_radius2), mandel_features);
+                const f64 LOG_ER2 = bl_table_invoke(bl_dispatch_table(log_escape_radius2), mandel_features);
                 const f32 cphi    = std::cos(phase);
                 const f32 sphi    = std::sin(phase);
                 const f32 stripe  = stripeFromAccum(px.stripe, LOG_ER2, cphi, sphi);
 
                 bool escaped = (px.depth < INSIDE_MANDELBROT_SET_SKIPPED);
-                std::string x_str = to_string(stats.hovered_field_world_pos.x, decimals, true);
-                std::string y_str = to_string(stats.hovered_field_world_pos.y, decimals, true);
+                std::string x_str = to_string(stats.hovered_field_world_pos.x, decimals, std::ios_base::fixed);
+                std::string y_str = to_string(stats.hovered_field_world_pos.y, decimals, std::ios_base::fixed);
                 std::string dist_str = std::to_string(px.dist);
 
                 SetupTable2(col1_w);
@@ -234,11 +235,17 @@ void Mandelbrot_Scene::UI::populateStats()
             {
                 SetupTable2(col1_w);
                 
-                auto format_zoom = [](f128 f) -> std::string { return to_string(f, 5, false, true, true).c_str(); };
-                TableRowText2("Zoom",                "%s",   format_zoom(camera.relativeZoom<f128>()).c_str());
+                auto format_zoom = [](f64 f) -> std::string {
+                    return to_string(
+                        f,
+                        5,
+                        std::ios_base::scientific,
+                        bl::trailing_zero_policy::strip);
+                };
+                TableRowText2("Zoom",                "%s",   format_zoom(camera.relativeZoom()).c_str());
                 #if MANDEL_DEV_MODE                  
-                TableRowText2("Height",              "%.4f", (f64)toHeight(camera.relativeZoom<f128>()));
-                TableRowText2("Normalized Zoom",     "%.4f", (f64)toNormalizedZoom(camera.relativeZoom<f128>()));
+                TableRowText2("Height",              "%.4f", toHeight(camera.relativeZoom()));
+                TableRowText2("Normalized Zoom",     "%.4f", toNormalizedZoom(camera.relativeZoom()));
                 #endif
 
                 ImGui::EndTable();
@@ -292,7 +299,7 @@ void Mandelbrot_Scene::collectStats(bool renormalized)
     (void)finalized_compute; // hide warning when no sections use bool
 
     EscapeField& active_field = activeField();
-    WorldRasterGrid128& active_grid = activeRasterGrid();
+    WorldRasterGrid256& active_grid = activeRasterGrid();
 
     // stats for mouse position
     {
@@ -314,18 +321,19 @@ void Mandelbrot_Scene::collectStats(bool renormalized)
         stats.field_info.final_min_stripe  = active_field.final_min_stripe;
         stats.field_info.final_max_stripe  = active_field.final_max_stripe;
 
-        if (mouse->stage_x >= 0 &&
+        if (mouse->viewport && mouse->viewport->mountedScene() == this &&
+            mouse->stage_x >= 0 &&
             mouse->stage_y >= 0 &&
             mouse->stage_x < active_grid.rasterWidth() &&
             mouse->stage_y < active_grid.rasterHeight())
         {
             stats.sync(MandelStats::Dirty::hovered_field_pixel);
 
-            IVec2 pos = active_grid.pixelPosFromWorld(DDVec2(mouse->world_x, mouse->world_y));
+            IVec2 pos = active_grid.pixelPosFromWorld(mouse->worldPosition(camera));
             EscapeFieldPixel* p = active_field.get(pos.x, pos.y);
             if (p) stats.hovered_field_pixel = *p;
 
-            active_grid.pixelWorldPos<f128>((int)mouse->client_x, (int)mouse->client_y, stats.hovered_field_world_pos.x, stats.hovered_field_world_pos.y);
+            active_grid.pixelWorldPos<fqd_s>((int)mouse->client_x, (int)mouse->client_y, stats.hovered_field_world_pos.x, stats.hovered_field_world_pos.y);
         }
     }
 
@@ -372,7 +380,7 @@ void Mandelbrot_Scene::collectStats(bool renormalized)
             stats.stripe_histogram.clear();
         }
   
-        table_invoke(dispatch_table(syncHist, active_field, stats),
+        bl_table_invoke(bl_dispatch_table(syncHist, active_field, stats),
             iter_hist_visible,
             dist_hist_visible,
             stripe_hist_visible

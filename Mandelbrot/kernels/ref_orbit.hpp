@@ -27,7 +27,7 @@ struct RefOrbit
 template<class T_lo>
 struct RefOrbitLo
 {
-    T_lo cx{}, cy{};
+    //T_lo cx{}, cy{};
     int max_ref = 0;
 
     std::vector<RefStep<T_lo>> steps;
@@ -114,8 +114,8 @@ inline void downcast_orbit(const RefOrbit<Thi>& hi, RefOrbitLo<T_lo>& lo)
         st._pad = T_lo(0);
     }
 
-    lo.cx = (T_lo)hi.cx;
-    lo.cy = (T_lo)hi.cy;
+    ///lo.cx = (T_lo)hi.cx;
+    ///lo.cy = (T_lo)hi.cy;
     lo.max_ref = hi.max_ref;
 
     // expose raw pointer for kernel

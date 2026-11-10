@@ -8,6 +8,16 @@ class MultiPassShader
 {
     mutable std::vector<ShaderSurfacePtr> pass_surfaces;
     mutable GLuint black1x1Tex = 0;
+    ThreadQueue* render_queue = nullptr;
+
+    ThreadQueue* resolveRenderQueue() const
+    {
+        if (render_queue)
+            return render_queue;
+        if (auto* window = main_window())
+            return &window->threadQueue();
+        return nullptr;
+    }
 
     GLuint ensureBlack1x1Tex() const noexcept
     {
@@ -34,14 +44,24 @@ class MultiPassShader
 
 public:
 
+    void setRenderThreadQueue(ThreadQueue& queue)
+    {
+        render_queue = &queue;
+    }
+
     ~MultiPassShader()
     {
         GLuint blackTex = black1x1Tex;
-        main_window()->threadQueue().post([blackTex]()
+        auto cleanup = [blackTex]()
         {
             if (blackTex != 0)
                 glDeleteTextures(1, &blackTex);
-        });
+        };
+
+        if (ThreadQueue* queue = resolveRenderQueue())
+            queue->post(cleanup);
+        else
+            cleanup();
     }
 
     void updateFragmentSource(std::string_view script)
@@ -294,7 +314,15 @@ public:
         // resize
         pass_surfaces.resize(passes.size());
         for (auto& s : pass_surfaces)
-            if (!s) s = makeShaderSurface(main_window()->threadQueue());
+        {
+            if (!s)
+            {
+                if (ThreadQueue* queue = resolveRenderQueue())
+                    s = makeShaderSurface(*queue);
+                else
+                    s = ShaderSurfacePtr(new ShaderSurface(), DeferredDelete<ShaderSurface>{ nullptr });
+            }
+        }
 
 
         for (int i = 0; i < (int)passes.size(); ++i)

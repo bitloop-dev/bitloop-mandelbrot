@@ -12,7 +12,8 @@ FORCE_INLINE bool mandel_kernel_perturb(
     int iter_lim,
     f64& depth,
     f64& dist,
-    StripeAccum& stripe)
+    StripeAccum& stripe,
+    bool first=false)
 {
     using V2 = simd2::v2<T_lo>;
 
@@ -23,23 +24,28 @@ FORCE_INLINE bool mandel_kernel_perturb(
     int ref_i = 0;
     const int max_ref = std::max(0, ref.max_ref);
 
+    if (first)
+    {
+        blPrint() << "first pixel dcy: " << dcy;// bl::to_string(dcy);
+    }
+
     // --- delta state ---
-    T_lo dx = 0, dy = 0;
+    T_lo dx{ 0.0 }, dy{ 0.0 };
 
     // --- derivative (for distance estimate) ---
-    T_lo ddx = T_lo(1);
-    T_lo ddy = T_lo(0);
+    T_lo ddx{ 1.0 };
+    T_lo ddy{ 0.0 };
 
     // --- z (previous step) ---
-    T_lo zx_prev = 0, zy_prev = 0;
+    T_lo zx_prev{ 0.0 }, zy_prev{ 0.0 };
 
     for (int n = 0; n < iter_lim; ++n)
     {
         // 1) update derivative
         if constexpr (NEED_DIST)
         {
-            const T_lo tdx = T_lo(2) * zx_prev * ddx - T_lo(2) * zy_prev * ddy + T_lo(1);
-            const T_lo tdy = T_lo(2) * zx_prev * ddy + T_lo(2) * zy_prev * ddx;
+            const T_lo tdx = T_lo{ 2.0 } * zx_prev* ddx - T_lo{ 2.0 } * zy_prev * ddy + T_lo{ 1.0 };
+            const T_lo tdy = T_lo{ 2.0 } * zx_prev* ddy + T_lo{ 2.0 } * zy_prev * ddx;
             ddx = tdx;
             ddy = tdy;
         }
@@ -49,6 +55,7 @@ FORCE_INLINE bool mandel_kernel_perturb(
 
         const T_lo c2x = s.pre2x;
         const T_lo c2y = s.pre2y;
+
 
         const T_lo sx = c2x + dx;
         const T_lo sy = c2y + dy;
@@ -67,6 +74,11 @@ FORCE_INLINE bool mandel_kernel_perturb(
 
         const T_lo zax = zpostx + dx;
         const T_lo zay = zposty + dy;
+     
+        //if (first && n == 0)
+        //{
+        //    blPrint() << "first pixel, first iter zposty: " << zposty;// bl::to_string(dcy);
+        //}
 
         const T_lo r2 = zax * zax + zay * zay;
 
@@ -92,13 +104,13 @@ FORCE_INLINE bool mandel_kernel_perturb(
             // DIST
             if constexpr (NEED_DIST)
             {
-                const T_lo r = T_lo(std::sqrt((f64)r2));
-                const T_lo dzabs = T_lo(std::hypot((f64)ddx, (f64)ddy));
-                dist = (dzabs == 0) ? 0 : (r * std::log(r) / dzabs);
+                const T_lo r{ std::sqrt((f64)r2) };
+                const T_lo dzabs = T_lo{ std::hypot((f64)ddx, (f64)ddy) };
+                dist = (dzabs == T_lo{ 0.0 }) ? 0.0 : ((f64)r * std::log((f64)r) / (f64)dzabs);
             }
             else 
             {
-                dist = 0;
+                dist = 0.0;
             }
 
             // STRIPE
@@ -120,15 +132,15 @@ FORCE_INLINE bool mandel_kernel_perturb(
         // B) boundary-aware rebase
         if (!must_rebase)
         {
-            constexpr T_lo ALPHA2 = (T_lo)(0.75 * 0.75);
-            const T_lo lim2 = ALPHA2 * s.slack2;
+            constexpr T_lo ALPHA2{ 0.75 * 0.75 };
+            const T_lo lim2{ ALPHA2 * s.slack2 };
             if (d2 > lim2)
                 must_rebase = true;
         }
 
         // C) pauldelbrot rebase (near critical point)
         if (!must_rebase) {
-            constexpr T_lo H = (T_lo)0.95;
+            constexpr T_lo H{ 0.95 };
             if (r2 < H * d2)
                 must_rebase = true;
         }
@@ -154,7 +166,7 @@ FORCE_INLINE bool mandel_kernel_perturb(
 
     // Did not escape
     depth = INSIDE_MANDELBROT_SET;
-    if constexpr (NEED_DIST)    dist = T_lo(-1);
+    if constexpr (NEED_DIST)    dist = -1.0;
     if constexpr (NEED_STRIPES) stripe.escape(0.0);
     return true;
 }

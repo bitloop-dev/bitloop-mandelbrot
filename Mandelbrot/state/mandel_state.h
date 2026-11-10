@@ -23,14 +23,14 @@ struct MandelState
                      
     bool             show_axis                      = true;
     bool             dynamic_iter_lim               = true;
-    double           quality                        = 0.5; // Used for UI (ignored during tween, represents iter_lim OR % of iter_lim)
+    f64              quality                        = 0.5; // Used for UI (ignored during tween, represents iter_lim OR % of iter_lim)
     int              interior_forwarding            = (int)MandelInteriorForwarding::MEDIUM;
                                                     
     bool             use_smoothing                  = true;
                      
-    double           iter_weight                    = 1.0;
-    double           dist_weight                    = 0.0;
-    double           stripe_weight                  = 0.0;
+    f64              iter_weight                    = 1.0;
+    f64              dist_weight                    = 0.0;
+    f64              stripe_weight                  = 0.0;
 
     std::string shader_source_txt =
         "vec4 userShade(float iter, float dist, float stripe, vec2 uv)\n{\n"
@@ -44,12 +44,12 @@ struct MandelState
     PivotToneParams  dist_tone_params;
     PivotToneParams  stripe_tone_params;
 
-    double           gradient_shift                 = 0.5;
-    double           hue_shift                      = 0.0;
+    f64              gradient_shift                 = 0.5;
+    f64              hue_shift                      = 0.0;
                                                     
-    double           gradient_shift_step            = 0.0078;
-    double           hue_shift_step                 = 0.136;
-    float            phase_step                     = 0.0f;
+    f64              gradient_shift_step            = 0.0078;
+    f64              hue_shift_step                 = 0.136;
+    f32              phase_step                     = 0.0f;
 
     ImGradient       gradient;
     
@@ -60,16 +60,22 @@ struct MandelState
   
     /// ─────────────────────── Normalization Info ───────────────────────
 
-    double normalize_field_scale = 2.0;
-    double normalize_field_quality = 0.1;
-    double normalize_field_exponent = 1.0;
-    double normalize_field_precision = 0.0; // 0=never recalculate when overlapping nearest existing pixel, 1=always use EXACT sample coordinate
+    f64 normalize_field_scale = 2.0;
+    f64 normalize_field_quality = 0.1;
+    f64 normalize_field_exponent = 1.0;
+    f64 normalize_field_precision = 0.0; 
+      // 0 = never recalculate when overlapping nearest existing pixel, 
+      // 1 = always use EXACT sample coordinate
 
     SnapshotPresetHashMap valid_presets;
+    const SnapshotPresetList* capture_presets = nullptr;
 
     ///////////////////////////////////////////////////////////////////////////
 
     std::string serialize() const;
+    void setCapturePresetList(const SnapshotPresetList* presets) { capture_presets = presets; }
+    [[nodiscard]] const SnapshotPresetList* capturePresetList() const { return capture_presets; }
+
     bool deserialize(std::string_view sv)
     {
         // first, try decoding compressed

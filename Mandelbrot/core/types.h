@@ -4,6 +4,13 @@
 #include <cmath>
 #include <vector>
 
+// don't use FloatType::F32 - remap from F64 (F32 offers no advantage to performance and bloats dispatch tables)
+enum struct MandelFloatType { F64, F128, F256, COUNT };
+bl_enable_enum_bitops(MandelFloatType);
+bl_map_enum_to_type(MandelFloatType::F64,  bl::f64);
+bl_map_enum_to_type(MandelFloatType::F128, bl::fdd);
+bl_map_enum_to_type(MandelFloatType::F256, bl::fqd);
+
 enum class KernelFeatures
 {
     NONE    = 0b000,
@@ -15,28 +22,63 @@ enum class KernelFeatures
     COUNT
 };
 
-enum struct KernelMode : uint32_t
+template<>
+struct bl_enum_domain_traits<KernelFeatures>
 {
-    NO_PERTURBATION                   = 0,
-    PERTURBATION                      = 1,
-    PERTURBATION_SIMD                 = 2, // kept for development / easier debugging
-    PERTURBATION_SIMD_UNROLLED        = 3,
+    static constexpr std::size_t size = static_cast<std::size_t>(KernelFeatures::MIX_ALL);
+    static constexpr std::size_t index(KernelFeatures v) {
+        const auto u = static_cast<std::size_t>(v);
+        assert(u >= 1 && u <= size);
+        return u - 1;
+    }
+
+    static constexpr KernelFeatures value(std::size_t i) {
+        return static_cast<KernelFeatures>(i + 1);
+    }
+};
+
+enum struct SplitScreenMode : uint32_t
+{
+    SINGLE_VIEW,
+    SPLIT_VIEW
+};
+
+enum struct FractalFormula : uint32_t
+{
+    MANDELBROT,
+
+    COUNT
+};
+
+enum struct ComputeBackend : uint32_t
+{
+    DIRECT,
+
+    // perturbation
+    PERTURBATION,
+    //PERTURBATION_SIMD, // kept for development / easier debugging
+    PERTURBATION_SIMD_UNROLLED,
 
     COUNT,
     AUTO = COUNT, // Same value as COUNT to avoid being included in constexpr_dispatch 'build_table'
 };
 
-static inline const char* KernelModeNames[(int)KernelMode::COUNT] =
+static inline const char* FractalFormulaNames[(int)FractalFormula::COUNT] =
 {
-    "NO_PERTURBATION",
+    "MANDELBROT"
+};
+
+static inline const char* ComputeBackendNames[(int)ComputeBackend::COUNT] =
+{
+    "DIRECT",
     "PERTURBATION",
-    "PERTURBATION_SIMD",
+    //"PERTURBATION_SIMD",
     "PERTURBATION_SIMD_UNROLLED"
 };
 
 // todo: find way to put inside SIM_BEG ns (wasm32 error, must be in global)
+bl_enable_enum_bitops(SplitScreenMode);
 bl_enable_enum_bitops(KernelFeatures);
-bl_enable_enum_bitops(KernelMode);
 
 SIM_BEG;
 
@@ -92,11 +134,12 @@ static inline const char* MandelMaxDepthOptimizationNames[(int)MandelInteriorFor
     "Fast (Loss at sharp angles)"
 };
 
-static inline const char* FloatingPointTypeNames[3] =
+static inline const char* FloatTypeNames[3] =
 {
-    "32-bit",
+    //"32-bit",
     "64-bit",
-    "128-bit (quad-precision)"
+    "128-bit",
+    "256-bit"
 };
 
 

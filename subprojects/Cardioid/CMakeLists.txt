@@ -1,7 +1,9 @@
 cmake_minimum_required(VERSION 3.21)
-project(Cardioid LANGUAGES C CXX)
-include(CheckCXXCompilerFlag)
+project(Cardioid NONE)
+
 include("${CMAKE_CURRENT_LIST_DIR}/tooling/findBitloop.cmake")
+
+bitloop_enable_languages(LANGUAGES C CXX)
 
 # ---------------------------------  flags  ----------------------------------
 # if this Cmake project open as root, BITLOOP_DEV_MODE overrides child projects

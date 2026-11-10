@@ -33,6 +33,8 @@ void Mandelbrot_Scene::UI::init()
             for (auto& bookmark : items)
             {
                 MandelState state;
+                if (ProjectBase* project = ProjectBase::activeProject())
+                    state.setCapturePresetList(&project->snapshotPresetManager().allPresets());
                 state.deserialize(bookmark.data);
                 bookmark.data = state.serialize();
             }
@@ -339,7 +341,6 @@ void Mandelbrot_Scene::UI::populateCameraView()
     }
 }
 
-
 void Mandelbrot_Scene::UI::populateExamples()
 {
     if (ImGui::CollapsingHeaderBox("Examples", true))
@@ -441,7 +442,7 @@ void Mandelbrot_Scene::UI::populateExamples()
                                 std::string state_data = scene.serialize();
 
                                 // Grab a suitable thumbnail preset
-                                SnapshotPresetList all_presets = main_window()->getSnapshotPresetManager()->allPresets();
+                                SnapshotPresetList all_presets = scene.snapshotPresetManager().allPresets();
                                 CapturePreset* preset = all_presets.findByAlias("thumb128x72_hd");
                                 assert(preset != nullptr);
 
@@ -491,7 +492,7 @@ void Mandelbrot_Scene::UI::populateQualityOptions()
             }
             else
             {
-                quality = qualityFromIterLimit(iter_lim, camera.relativeZoom<f128>());
+                quality = qualityFromIterLimit(iter_lim, camera.relativeZoom());
             }
         }
 
@@ -547,14 +548,28 @@ void Mandelbrot_Scene::UI::populateQualityOptions()
             ImGui::Spacing(); ImGui::Spacing();
 
             #if MANDEL_DEV_MODE
-            bl_scoped(kernel_mode);
-            ImGui::Text("Kernel Mode");
+            bl_scoped(fractal_formula, compute_backend);
+            bl_pull_temp(scene_link);
+
+            const bool kernel_synced = scene_link.source.ready() && scene_link.sync.kernel;
+            if (kernel_synced)
+                ImGui::BeginDisabled();
+
+            ImGui::Text("Fractal Formula");
             ///--------------------------------------------------------------------------------------------------------------------------
-            ImGui::RadioButton("Auto", &(int&)kernel_mode, (int)KernelMode::AUTO);
-            ImGui::RadioButton("No Perturbation", &(int&)kernel_mode, (int)KernelMode::NO_PERTURBATION);
-            ImGui::RadioButton("Perturbation (no SIMD)", &(int&)kernel_mode, (int)KernelMode::PERTURBATION);
-            ImGui::RadioButton("Perturbation (SIMD)", &(int&)kernel_mode, (int)KernelMode::PERTURBATION_SIMD);
-            ImGui::RadioButton("Perturbation (SIMD, unrolled)", &(int&)kernel_mode, (int)KernelMode::PERTURBATION_SIMD_UNROLLED);
+            ImGui::RadioButton("Mandelbrot", &(int&)fractal_formula, (int)FractalFormula::MANDELBROT);
+
+            ImGui::Spacing();
+            ImGui::Text("Compute Backend");
+
+            ImGui::RadioButton("Auto", &(int&)compute_backend, (int)ComputeBackend::AUTO);
+            ImGui::RadioButton("Direct", &(int&)compute_backend, (int)ComputeBackend::DIRECT);
+            ImGui::RadioButton("Perturbation (no SIMD)", &(int&)compute_backend, (int)ComputeBackend::PERTURBATION);
+            //ImGui::RadioButton("Perturbation (SIMD)", &(int&)compute_backend, (int)ComputeBackend::PERTURBATION_SIMD);
+            ImGui::RadioButton("Perturbation (SIMD, unrolled)", &(int&)compute_backend, (int)ComputeBackend::PERTURBATION_SIMD_UNROLLED);
+
+            if (kernel_synced)
+                ImGui::EndDisabled();
             ///--------------------------------------------------------------------------------------------------------------------------
             #endif
         }
@@ -1362,12 +1377,12 @@ Limits2D computeTaperedFitLimits(
 }
 
 template<typename T>
-void computeOrbit(f128 x0, f128 y0, int iter_lim, std::vector<f64>& xs, std::vector<f64>& ys)
+void computeOrbit(fqd x0, fqd y0, int iter_lim, std::vector<f64>& xs, std::vector<f64>& ys)
 {
     using Complex = Complex<T>;
     constexpr T escape_r = T(16.0);
 
-    Complex z{ 0.0, 0.0 };
+    Complex z{ T(0.0), T(0.0) };
     Complex c{ T(x0), T(y0) };
 
     for (int i = 0; i < iter_lim; i++)
@@ -1383,7 +1398,7 @@ void computeOrbit(f128 x0, f128 y0, int iter_lim, std::vector<f64>& xs, std::vec
 }
 
 template<typename T>
-void computeOrbitVel(f128 x0, f128 y0, int iter_lim, std::vector<f64>& xs, std::vector<f64>& ys)
+void computeOrbitVel(fqd x0, fqd y0, int iter_lim, std::vector<f64>& xs, std::vector<f64>& ys)
 {
     using Complex = Complex<T>;
     constexpr T escape_r = T(16.0);
@@ -1420,7 +1435,7 @@ void Mandelbrot_Scene::UI::populateMouseOrbit()
 
         auto [x0, y0] = stats.hovered_field_world_pos;
 
-        table_invoke(dispatch_table(computeOrbitVel, x0, y0, iter_lim, xs, ys), float_type);
+        bl_table_invoke(bl_dispatch_table(computeOrbit, x0, y0, iter_lim, xs, ys), bl_enum_type(float_type));
 
         if (ImPlot::BeginPlot("Mouse orbit"))
         {
@@ -1447,7 +1462,15 @@ void Mandelbrot_Scene::UI::populateCaptureOptions()
     {
         // ---------------- Permitted capture presets during batch snapshot ----------------
         ImGui::BeginLabelledBox("Allowed presets (for current state)");
-        auto& standard_presets = main_window()->getSnapshotPresetManager()->allPresets();
+        ProjectBase* project = ProjectBase::activeProject();
+        if (!project)
+        {
+            ImGui::EndLabelledBox();
+            ImGui::EndCollapsingHeaderBox();
+            return;
+        }
+
+        auto& standard_presets = project->snapshotPresetManager().allPresets();
 
         bl_scoped(valid_presets);
         populateCapturePresetsList<CapturePresetsSelectMode::MULTI>([&](int i) -> CapturePreset& {
